@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo-wordmark.png" alt="CodeBread" width="360">
+  <img src="https://cdn.jsdelivr.net/gh/honow48-tech/CodeBread@main/assets/logo-wordmark.png" alt="CodeBread" width="360">
 </p>
 
 <p align="center">
