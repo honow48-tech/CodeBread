@@ -60,27 +60,30 @@ That's it. Clone it, run it, nothing to compile.
 ## Install
 
 ```bash
-# option A: install the CLI
-pip install .
-
-# option B: don't install anything, just run it
-python codebread.py --path /path/to/project
+pip install codebread
 ```
 
 Optional extra (better `.gitignore` matching while scanning):
 
 ```bash
-pip install .[full]        # adds pathspec
+pip install codebread[full]        # adds pathspec
 ```
 
 Requires **Python 3.9+**. Nothing else.
+
+Prefer running from source instead (e.g. to contribute)?
+
+```bash
+git clone https://github.com/honow48-tech/CodeBread.git
+cd CodeBread
+pip install .                      # or: python codebread.py --path /path/to/project
+```
 
 ## Use
 
 ```bash
 codebread --path /path/to/project        # scan + open the UI in your browser
 codebread                                # prompts for the path
-python codebread.py --path .             # uninstalled, same thing
 ```
 
 That's the whole quick start: point it at a folder, a browser tab opens with
