@@ -46,3 +46,6 @@ codebread-spec.md
 
 # Node (only relevant if you add JS tooling later)
 node_modules/
+
+.claude
+.claude/*
