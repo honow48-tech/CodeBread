@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codebread"
+version = "1.0.0"
+description = "Interactive codebase analyzer & visualizer — slice open a project and see how it's wired together."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Danial Irsyad" }]
+keywords = ["codebase", "analyzer", "visualizer", "call-graph", "architecture"]
+dependencies = []
+
+[project.optional-dependencies]
+full = ["pathspec>=0.11"]
+
+[project.scripts]
+codebread = "codebread.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["codebread*"]
+
+[tool.setuptools.package-data]
+codebread = ["web/*"]

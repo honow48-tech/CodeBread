@@ -1,0 +1,3 @@
+# CodeBread runs on the Python standard library alone — nothing here is required.
+# Optional extras (better .gitignore matching):
+pathspec>=0.11

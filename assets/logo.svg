@@ -1,0 +1,10 @@
+<svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="CodeBread logo">
+  <path d="M14 108 L14 56 C14 26 34 12 60 12 C86 12 106 26 106 56 L106 108 Z"
+        fill="#0a1526" stroke="#1a2f4a" stroke-width="2"/>
+  <line x1="40" y1="86" x2="60" y2="46" stroke="#2dd4bf" stroke-width="3.5" stroke-linecap="round"/>
+  <line x1="60" y1="46" x2="82" y2="80" stroke="#2dd4bf" stroke-width="3.5" stroke-linecap="round"/>
+  <line x1="40" y1="86" x2="82" y2="80" stroke="#67e8f9" stroke-width="3.5" stroke-linecap="round" opacity="0.6"/>
+  <circle cx="40" cy="86" r="8" fill="#0a1526" stroke="#67e8f9" stroke-width="3"/>
+  <circle cx="60" cy="46" r="9" fill="#67e8f9"/>
+  <circle cx="82" cy="80" r="8" fill="#0a1526" stroke="#2dd4bf" stroke-width="3"/>
+</svg>

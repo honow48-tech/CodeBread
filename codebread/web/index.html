@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CodeBread — codebase map</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Cpath d='M14 108 L14 56 C14 26 34 12 60 12 C86 12 106 26 106 56 L106 108 Z' fill='%230a1526' stroke='%231a2f4a' stroke-width='2'/%3E%3Cline x1='40' y1='86' x2='60' y2='46' stroke='%232dd4bf' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='60' y1='46' x2='82' y2='80' stroke='%232dd4bf' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='40' y1='86' x2='82' y2='80' stroke='%2367e8f9' stroke-width='4' stroke-linecap='round' opacity='0.6'/%3E%3Ccircle cx='40' cy='86' r='9' fill='%230a1526' stroke='%2367e8f9' stroke-width='3.5'/%3E%3Ccircle cx='60' cy='46' r='10' fill='%2367e8f9'/%3E%3Ccircle cx='82' cy='80' r='9' fill='%230a1526' stroke='%232dd4bf' stroke-width='3.5'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <header id="topbar">
+    <div id="brand">
+      <svg id="brand-icon" viewBox="0 0 120 120" role="img" aria-label="CodeBread logo">
+        <path d="M14 108 L14 56 C14 26 34 12 60 12 C86 12 106 26 106 56 L106 108 Z"
+              fill="#0a1526" stroke="#1a2f4a" stroke-width="2"/>
+        <line x1="40" y1="86" x2="60" y2="46" stroke="#2dd4bf" stroke-width="4" stroke-linecap="round"/>
+        <line x1="60" y1="46" x2="82" y2="80" stroke="#2dd4bf" stroke-width="4" stroke-linecap="round"/>
+        <line x1="40" y1="86" x2="82" y2="80" stroke="#67e8f9" stroke-width="4" stroke-linecap="round" opacity="0.6"/>
+        <circle cx="40" cy="86" r="9" fill="#0a1526" stroke="#67e8f9" stroke-width="3.5"/>
+        <circle cx="60" cy="46" r="10" fill="#67e8f9"/>
+        <circle cx="82" cy="80" r="9" fill="#0a1526" stroke="#2dd4bf" stroke-width="3.5"/>
+      </svg>
+      <span id="brand-name">CodeBread</span>
+      <span id="project-name"></span>
+    </div>
+
+    <div id="stats"></div>
+
+    <div id="search-wrap">
+      <input id="search" type="text" autocomplete="off" spellcheck="false"
+             placeholder="Search functions, files, tables…  ( / )">
+      <div id="search-results" class="hidden"></div>
+    </div>
+
+    <nav id="view-mode" aria-label="View mode">
+      <button data-view="chart" class="active">◈ Chart</button>
+      <button data-view="ide">⌗ IDE</button>
+    </nav>
+
+    <nav id="layer-filter" aria-label="Filter by layer">
+      <button data-layer="all" class="active">All</button>
+      <button data-layer="frontend">Frontend</button>
+      <button data-layer="backend">Backend</button>
+      <button data-layer="database">Database</button>
+      <button data-layer="config">Config</button>
+    </nav>
+  </header>
+
+  <div id="main">
+    <aside id="sidebar">
+      <div id="sidebar-title">Explorer</div>
+      <div id="tree" role="tree"></div>
+    </aside>
+
+    <div id="canvas-wrap">
+      <div id="breadcrumb" class="hidden"></div>
+
+      <svg id="graph" role="img" aria-label="Codebase connection graph">
+        <defs>
+          <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur stdDeviation="4" result="b"/>
+            <feMerge>
+              <feMergeNode in="b"/><feMergeNode in="SourceGraphic"/>
+            </feMerge>
+          </filter>
+          <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4"
+                  markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0.6 L7.4,4 L0,7.4 z" fill="context-stroke"/>
+          </marker>
+        </defs>
+        <g id="viewport">
+          <g id="edges-g"></g>
+          <g id="nodes-g"></g>
+        </g>
+      </svg>
+
+      <div id="empty-state" class="hidden">
+        <svg id="empty-icon" class="cb-mark" viewBox="0 0 120 120" role="img" aria-label="CodeBread">
+          <path d="M14 108 L14 56 C14 26 34 12 60 12 C86 12 106 26 106 56 L106 108 Z"
+                fill="none" stroke="#2c4266" stroke-width="3"/>
+          <line x1="40" y1="86" x2="60" y2="46" stroke="#2dd4bf" stroke-width="3.5" stroke-linecap="round" opacity="0.7"/>
+          <line x1="60" y1="46" x2="82" y2="80" stroke="#2dd4bf" stroke-width="3.5" stroke-linecap="round" opacity="0.7"/>
+          <line x1="40" y1="86" x2="82" y2="80" stroke="#67e8f9" stroke-width="3.5" stroke-linecap="round" opacity="0.4"/>
+          <circle cx="40" cy="86" r="8" fill="none" stroke="#67e8f9" stroke-width="3" opacity="0.7"/>
+          <circle cx="60" cy="46" r="9" fill="#67e8f9" opacity="0.7"/>
+          <circle cx="82" cy="80" r="8" fill="none" stroke="#2dd4bf" stroke-width="3" opacity="0.7"/>
+        </svg>
+        <div id="empty-title">Pick a file to begin</div>
+        <div id="empty-msg">Select a file in the Explorer on the left to see its functions
+          and how it connects to the rest of the codebase.</div>
+      </div>
+
+      <div id="legend"></div>
+
+      <div id="minimap">
+        <svg id="minimap-svg"></svg>
+      </div>
+
+      <div id="zoom-controls">
+        <button id="zoom-in"  title="Zoom in">+</button>
+        <button id="zoom-out" title="Zoom out">−</button>
+        <button id="zoom-fit" title="Fit view">⤢</button>
+        <button id="layout-toggle" class="active" title="Orbit layout — files float, functions ring around them (click to switch)">◎</button>
+        <button id="focus-toggle" title="Focus mode: clear the chart, then pick one file at a time from the Explorer">⌖</button>
+      </div>
+
+      <div id="hint">click a node to reveal its connections · ← → step through neighbors · ↑ ↓ history · drag to pan · scroll to zoom · right-click for actions</div>
+      <div id="tooltip" class="hidden"></div>
+      <div id="context-menu" class="hidden" role="menu"></div>
+    </div>
+
+    <div id="ide" class="hidden">
+      <div id="ide-head">
+        <span id="ide-icon">📄</span>
+        <span id="ide-path"></span>
+        <span id="ide-lang"></span>
+        <button id="ide-close" title="Back to chart (Esc)">◈ Chart</button>
+      </div>
+      <div id="ide-body">
+        <aside id="ide-outline">
+          <div id="ide-outline-title">Outline</div>
+          <div id="ide-outline-list"></div>
+        </aside>
+        <div id="ide-code"></div>
+      </div>
+    </div>
+
+    <aside id="detail" class="hidden">
+      <button id="detail-close" title="Close">×</button>
+      <div id="detail-body"></div>
+    </aside>
+  </div>
+
+  <div id="warnings-panel" class="hidden">
+    <div class="wp-head">
+      <span>Warnings</span>
+      <button id="warnings-close" title="Close">×</button>
+    </div>
+    <div id="warnings-list"></div>
+  </div>
+
+  <div id="insights-panel" class="hidden">
+    <div class="wp-head">
+      <span>Insights</span>
+      <button id="insights-close" title="Close">×</button>
+    </div>
+    <div id="insights-body">
+      <div class="ip-section">
+        <h5>Orphaned functions <span id="ip-orphan-count"></span></h5>
+        <div id="ip-orphans-list"></div>
+      </div>
+      <div class="ip-section">
+        <h5>Circular call chains <span id="ip-cycle-count"></span></h5>
+        <div id="ip-cycles-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="onboarding" class="hidden">
+    <div id="onboarding-card">
+      <svg id="onboarding-icon" class="cb-mark" viewBox="0 0 120 120" role="img" aria-label="CodeBread">
+        <path d="M14 108 L14 56 C14 26 34 12 60 12 C86 12 106 26 106 56 L106 108 Z"
+              fill="#0a1526" stroke="#1a2f4a" stroke-width="2"/>
+        <line x1="40" y1="86" x2="60" y2="46" stroke="#2dd4bf" stroke-width="4" stroke-linecap="round"/>
+        <line x1="60" y1="46" x2="82" y2="80" stroke="#2dd4bf" stroke-width="4" stroke-linecap="round"/>
+        <line x1="40" y1="86" x2="82" y2="80" stroke="#67e8f9" stroke-width="4" stroke-linecap="round" opacity="0.6"/>
+        <circle cx="40" cy="86" r="9" fill="#0a1526" stroke="#67e8f9" stroke-width="3.5"/>
+        <circle cx="60" cy="46" r="10" fill="#67e8f9"/>
+        <circle cx="82" cy="80" r="9" fill="#0a1526" stroke="#2dd4bf" stroke-width="3.5"/>
+      </svg>
+      <h3>Welcome to CodeBread</h3>
+      <ol>
+        <li>Click a <b>file</b> to slice it open into its functions.</li>
+        <li>Click a <b>function</b> to reveal what it calls and what calls it — its
+          full chain lights up, everything else dims.</li>
+        <li>Toggle <b>⌖ Focus</b> (bottom-right) to clear the chart and inspect
+          files one at a time from the Explorer instead of the full overview.</li>
+      </ol>
+      <button id="onboarding-dismiss">Got it</button>
+    </div>
+  </div>
+
+</div>
+<script src="app.js"></script>
+</body>
+</html>
