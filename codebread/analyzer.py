@@ -34,8 +34,12 @@ def analyze(root: str,
             info.warnings.append(err)
         info.layer = classify(info, text)
         if info.parsed or info.language in ("html", "css"):
-            info.source = text if len(text) <= 300_000 else \
+            src = text if len(text) <= 300_000 else \
                 text[:300_000] + "\n… (truncated)"
+            if info.language == "config":
+                from .parsers.generic_parser import redact_secrets
+                src = redact_secrets(src)
+            info.source = src
         parsed.append(info)
         for w in info.warnings:
             if w.startswith("Unsupported:"):

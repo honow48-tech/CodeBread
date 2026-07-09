@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Dict
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
+WEB_ROOT = os.path.realpath(WEB_DIR)
 
 MIME = {".html": "text/html; charset=utf-8",
         ".js": "application/javascript; charset=utf-8",
@@ -45,11 +46,19 @@ def serve(graph: Dict, port: int = 8137, open_browser: bool = True) -> None:
                 self._file(path.lstrip("/"))
 
         def _file(self, rel: str):
-            rel = os.path.normpath(rel).replace("\\", "/")
-            if rel.startswith("..") or rel.startswith("/"):
+            # Resolve against WEB_DIR and verify the *result* is still inside
+            # it. String-prefix checks on `rel` alone aren't enough: on
+            # Windows, os.path.join(WEB_DIR, "C:/some/file") silently
+            # discards WEB_DIR because the second argument is drive-absolute,
+            # which would otherwise let a request read any file on disk.
+            full = os.path.realpath(os.path.join(WEB_DIR, rel))
+            try:
+                inside = os.path.commonpath([full, WEB_ROOT]) == WEB_ROOT
+            except ValueError:
+                inside = False  # e.g. different drives on Windows
+            if not inside:
                 self.send_error(403)
                 return
-            full = os.path.join(WEB_DIR, rel)
             if not os.path.isfile(full):
                 self.send_error(404)
                 return

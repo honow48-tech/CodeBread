@@ -286,3 +286,17 @@ def parse_config(info: FileInfo, text: str) -> None:
                 value = value[:57] + "..."
         info.db_config.append(f"{key} = {value}")
     info.db_config = info.db_config[:20]
+
+
+def redact_secrets(text: str) -> str:
+    """Mask secret-looking values line by line. Used on config-file source
+    before it's stored/exported, so the raw "IDE view" / JSON export can't
+    leak what the DB-config summary already redacts."""
+    out = []
+    for line in text.splitlines():
+        m = re.match(r"^(\s*[\"']?[\w.\-]+[\"']?\s*[:=]\s*)(.+)$", line)
+        if m and SECRET_KEY_RE.search(m.group(1)):
+            out.append(m.group(1) + "•••masked•••")
+        else:
+            out.append(URL_CREDS_RE.sub("://***:***@", line))
+    return "\n".join(out)
