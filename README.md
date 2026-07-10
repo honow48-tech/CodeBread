@@ -150,14 +150,38 @@ the map already scanned.
 
 ## Language support
 
-| Language | Parser | Extracted |
-|---|---|---|
-| Python | stdlib `ast` (precise) | functions, classes, params/annotations, docstrings, Flask/FastAPI/Django routes, SQLAlchemy/Django models, raw SQL, `requests`/`httpx` calls |
-| JavaScript / TypeScript / JSX / TSX / Vue / Svelte | structural regex + brace matching | functions, arrow fns, classes, Express/Nest/Fastify routes, `fetch`/`axios` calls, Mongoose/Prisma/Sequelize/Knex/TypeORM, raw SQL |
-| Java, C#, Go, PHP, Ruby | structural regex | functions/methods, classes, Spring/ASP.NET/Laravel/Rails/Gin routes, raw SQL |
-| SQL | regex | `CREATE TABLE` schemas with columns |
-| Config (`.env`, json/yaml/toml/ini, settings.py…) | key scan | DB connection settings — **credentials always masked** |
-| Anything else (Rust, Kotlin, Swift, C/C++…) | — | shown in the UI as "⚠ Unsupported — parsing skipped", never silently dropped |
+Parser used per language, then exactly what gets extracted — checked feature
+by feature against the actual parser code, not a marketing table:
+
+| Language | Parser | Functions / methods | Classes / structs | Backend routes | Outgoing API calls | ORM / DB models | Raw SQL | Call graph | Page-nav links |
+|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Python | stdlib `ast` (precise) | ✅ | ✅ | ✅ Flask / FastAPI / Django | ✅ `requests` / `httpx` / `aiohttp` / `urllib` | ✅ SQLAlchemy / Django / peewee / tortoise | ✅ | ✅ | – |
+| JavaScript / TypeScript / JSX / TSX | regex + brace matching | ✅ | ✅ | ✅ Express / Fastify / Koa / NestJS | ✅ `fetch` / `axios` | ✅ Mongoose / Prisma / Sequelize / Knex / TypeORM | ✅ | ✅ | – |
+| Vue / Svelte | regex, `<script>` block only¹ | ✅ | ✅ | ✅ (same as JS) | ✅ (same as JS) | ✅ (same as JS) | ✅ | ✅ | – |
+| Java | regex | ✅ | ✅ | ✅ Spring `@*Mapping` | – | – | ✅ | ✅ | – |
+| C# | regex | ✅ | ✅ | ✅ ASP.NET `[Http*]` | – | – | ✅ | ✅ | – |
+| Go | regex | ✅ | ✅ (structs) | ✅ Gin / net-http style | – | – | ✅ | ✅ | – |
+| PHP | regex | ✅ | ✅ | ✅ Laravel `Route::` | – | – | ✅ | ✅ | ✅ |
+| Ruby | regex | ✅ | ✅ | ✅ Rails / Sinatra | – | – | ✅ | ✅ | ✅ |
+| SQL (`.sql` files) | regex | – | – | – | – | ✅ `CREATE TABLE` schemas + columns | ✅ | – | – |
+| Config (`.env`, json/yaml/toml/ini/xml…)² | key scan | – | – | – | – | – | – | – | – |
+| Anything else (Rust, Kotlin, Swift, C/C++, Scala, Elixir, Erlang, Lua, R, Perl, Dart, Zig…) | – | – | – | – | – | – | – | – | – |
+
+Unsupported languages still show up in the Explorer tree with an
+"⚠ Unsupported — parsing skipped" badge — never silently dropped — they just
+have no functions/edges to draw.
+
+¹ Vue/Svelte only parse the `<script>` block — template-only bindings
+(`@click`, `v-on`, Svelte reactive markup) aren't extracted.
+² Config-format files get a DB-connection-settings scan instead of code
+extraction — **credentials always masked**, see [export.py](codebread/export.py)-embedded
+source too. Files like `settings.py` or `config.js` are parsed as their real
+language (full extraction above), not this bucket — only non-code formats
+(json/yaml/toml/ini/`.env`/xml/properties) land here.
+
+Only Python's `ast`-based parser captures real parameter type annotations,
+return types, and docstrings — every regex-based parser above extracts
+parameter *names* only.
 
 ## How it classifies layers
 

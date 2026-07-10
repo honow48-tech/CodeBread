@@ -348,36 +348,61 @@ function visibleEdges() {
 }
 
 /* ---------------- DOM (re)build ---------------- */
+/* Incremental: only the nodes/edges that actually entered or left the
+   visible set touch the DOM. A full teardown+rebuild here would mean every
+   single click in a large, densely-linked graph re-creates *everything*
+   already on screen (elements + listeners) just to add one more node —
+   that's the "too many links = lag" complaint this replaced. */
 function rebuild() {
-  nodesG.innerHTML = ""; edgesG.innerHTML = "";
-  S.elNodes.clear(); S.elEdges.clear();
-  S.drawnEdges = [];
+  const newEdges = visibleEdges();
+  const newEdgeKeys = new Set(newEdges.map(edgeKey));
 
-  for (const e of visibleEdges()) {
-    const key = edgeKey(e);
-    const vis = document.createElementNS(SVGNS, "path");
-    vis.setAttribute("class", "edge k-" + e.kind + (e.cycle ? " cycle" : ""));
-    const hit = document.createElementNS(SVGNS, "path");
-    hit.setAttribute("class", "edge-hit");
-    hit.addEventListener("mousemove", (ev) => showEdgeTooltip(e, ev));
-    hit.addEventListener("mouseleave", hideTooltip);
-    hit.addEventListener("contextmenu", (ev) => {
-      ev.preventDefault(); ev.stopPropagation();
-      onEdgeContextMenu(e, ev);
-    });
-    edgesG.appendChild(vis); edgesG.appendChild(hit);
-    S.elEdges.set(key, { vis, hit });
-    S.drawnEdges.push({ edge: e, key });
+  for (const { key } of S.drawnEdges) {
+    if (newEdgeKeys.has(key)) continue;
+    const els = S.elEdges.get(key);
+    if (!els) continue;
+    els.vis.remove(); els.hit.remove();
+    S.elEdges.delete(key);
   }
 
+  const drawnEdges = [];
+  for (const e of newEdges) {
+    const key = edgeKey(e);
+    let els = S.elEdges.get(key);
+    if (!els) {
+      const vis = document.createElementNS(SVGNS, "path");
+      vis.setAttribute("class", "edge k-" + e.kind + (e.cycle ? " cycle" : ""));
+      const hit = document.createElementNS(SVGNS, "path");
+      hit.setAttribute("class", "edge-hit");
+      hit.addEventListener("mousemove", (ev) => showEdgeTooltip(e, ev));
+      hit.addEventListener("mouseleave", hideTooltip);
+      hit.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        onEdgeContextMenu(e, ev);
+      });
+      edgesG.appendChild(vis); edgesG.appendChild(hit);
+      els = { vis, hit };
+      S.elEdges.set(key, els);
+    }
+    drawnEdges.push({ edge: e, key });
+  }
+  S.drawnEdges = drawnEdges;
+
+  for (const [id, g] of S.elNodes) {
+    const n = S.nodesById.get(id);
+    if (S.visible.has(id) && n && passesFilter(n)) continue;
+    g.remove();
+    S.elNodes.delete(id);
+  }
   for (const id of S.visible) {
     const n = S.nodesById.get(id);
-    if (!n || !passesFilter(n)) continue;
+    if (!n || !passesFilter(n) || S.elNodes.has(id)) continue;
     ensurePos(id);
     const g = makeNodeEl(n);
     nodesG.appendChild(g);
     S.elNodes.set(id, g);
   }
+
   applyHighlight();
   updatePositions();
   renderMinimap();
