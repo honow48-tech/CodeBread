@@ -18,6 +18,10 @@ def test_safe_web_path_blocks_relative_traversal():
     assert safe_web_path("../../../../Windows/win.ini") is None
 
 
+@pytest.mark.skipif(os.name != "nt",
+                    reason="drive-absolute os.path.join discard is an "
+                           "ntpath-only quirk; on POSIX there's no drive "
+                           "letter so the path safely stays under WEB_DIR")
 def test_safe_web_path_blocks_windows_drive_absolute_traversal():
     # The bug this locks in: os.path.join(WEB_DIR, "C:/x") on Windows
     # discards WEB_DIR entirely because the second arg is drive-absolute.
@@ -68,6 +72,10 @@ def test_live_server_serves_data_json(live_server):
         assert resp.status == 200
 
 
+@pytest.mark.skipif(os.name != "nt",
+                    reason="drive-absolute os.path.join discard is an "
+                           "ntpath-only quirk; on POSIX the request just "
+                           "404s as a normal missing file under WEB_DIR")
 def test_live_server_rejects_drive_absolute_traversal(live_server):
     drive = os.path.splitdrive(WEB_DIR)[0] or "C:"
     with pytest.raises(urllib.error.HTTPError) as exc:
