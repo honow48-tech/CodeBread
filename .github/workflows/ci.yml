@@ -1,23 +1,27 @@
-name: Publish to PyPI
+name: CI
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: ["main"]
+  pull_request:
 
 permissions:
   contents: read
 
 jobs:
   test:
-    name: Test
+    name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.13"]
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install codebread + test deps
         run: python -m pip install --upgrade pip && pip install -e ".[full,test]"
@@ -41,24 +45,8 @@ jobs:
           python -m pip install --upgrade build
           python -m build
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
-  publish:
-    name: Publish to PyPI
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/codebread
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Check the built package installs and runs
+        run: |
+          python -m venv /tmp/codebread-check
+          /tmp/codebread-check/bin/pip install --quiet dist/*.whl
+          /tmp/codebread-check/bin/codebread --version

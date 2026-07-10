@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codebread"
-version = "1.0.3"
+version = "1.0.4"
 description = "Interactive codebase analyzer & visualizer — slice open a project and see how it's wired together."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -15,6 +15,7 @@ dependencies = []
 
 [project.optional-dependencies]
 full = ["pathspec>=0.11"]
+test = ["pytest>=7"]
 
 [project.scripts]
 codebread = "codebread.cli:main"
@@ -24,3 +25,6 @@ include = ["codebread*"]
 
 [tool.setuptools.package-data]
 codebread = ["web/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

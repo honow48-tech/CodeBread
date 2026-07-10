@@ -8,7 +8,8 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.2-2dd4bf">
+  <a href="https://pypi.org/project/codebread/"><img alt="PyPI" src="https://img.shields.io/pypi/v/codebread?color=2dd4bf&label=version"></a>
+  <a href="https://github.com/honow48-tech/CodeBread/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/honow48-tech/CodeBread/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="python" src="https://img.shields.io/badge/python-3.9%2B-0284c7">
   <img alt="deps" src="https://img.shields.io/badge/required%20dependencies-none-2dd4bf">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-8b5cf6">
@@ -224,11 +225,29 @@ codebread/
   server.py                ← stdlib local web server
   export.py                ← JSON + single-file HTML export
   web/                     ← the UI (vanilla JS + SVG, zero dependencies)
+tests/                     ← pytest suite + per-language fixture corpus
 assets/                    ← logo (.svg source + .png for the README —
                                GitHub blocks same-repo SVG <img> embeds)
 ```
 
 ---
+
+## Testing
+
+```bash
+pip install -e ".[full,test]"
+pytest -q
+```
+
+The suite covers every parser (a small fixture file per language under
+`tests/fixtures/`), the connection/graph builder (call resolution,
+API↔route matching, DB edges, orphan + cycle detection), the scanner
+(`.gitignore` handling, language detection), the local server (including a
+regression test for the path-traversal fix), and an end-to-end analyze
+pass — including a regression test that secrets in scanned `.env` files
+never leak into an exported graph. CI (`.github/workflows/ci.yml`) runs it
+on every push/PR across the minimum and latest supported Python versions,
+and the PyPI release workflow won't publish if it fails.
 
 ## Roadmap
 
@@ -237,13 +256,13 @@ Already done as of v1.0:
 - [x] Orphaned-function and circular-dependency detection
 - [x] Diff mode between two scans
 - [x] Focus mode, orbit layout, right-click actions, minimap, breadcrumb
+- [x] Automated test suite + CI
 
 Not yet, but planned:
 
 - [ ] "Explain this function" — a plain-language AI summary button
 - [ ] More precise multi-language parsing (currently structural regex for
       everything but Python)
-- [ ] An automated test suite
 
 Have an idea? Open an issue.
 
@@ -257,8 +276,12 @@ but contributions are genuinely welcome:
   or UI polish. Keep the zero-dependency philosophy: the core tool should
   keep running on nothing but the Python standard library, and the UI
   should keep running on vanilla JS with no build step.
-- No formal test suite yet, so please describe how you manually verified a
-  change in your PR.
+- Run `pytest -q` before opening a PR (see [Testing](#testing) above); add
+  a fixture + test case under `tests/` for new parser behavior where you
+  can.
+
+Security issue instead? See [SECURITY.md](SECURITY.md) rather than a
+public issue.
 
 ## License
 
