@@ -138,6 +138,7 @@ button { font-family: inherit; }
 .tdot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .tcount { margin-left: auto; font-size: 10px; color: var(--ink-3); font-family: var(--mono); }
 .twarn { color: var(--warn); font-size: 11px; flex: none; }
+.tobf { display: inline-flex; align-items: center; color: #fbbf24; flex: none; }
 .tchildren { margin-left: 14px; border-left: 1px solid rgba(103, 232, 249, 0.07); padding-left: 3px; display: none; }
 .tnode.open > .tchildren { display: block; }
 
@@ -224,6 +225,16 @@ button { font-family: inherit; }
 
 @keyframes flow { to { stroke-dashoffset: -32; } }
 
+/* The flowing-dash animation runs on every edge, continuously, forever —
+   fine for a normal graph, but on a dense one (a heavily-called hub with
+   hundreds of edges) that's hundreds of elements repainting every frame
+   indefinitely even while completely idle. Above a size threshold
+   (toggled in JS — see updateEdgeAnimationMode() in app.js) the graph
+   switches to the same dashed line style frozen in place: same design,
+   just not animating. #graph id selector keeps this reliably above
+   .edge.lit/.edge.k-contains's specificity regardless of source order. */
+#graph.static-edges .edge { animation: none; }
+
 @media (prefers-reduced-motion: reduce) {
   .edge { animation: none; }
 }
@@ -246,6 +257,7 @@ button { font-family: inherit; }
 .node.dim { opacity: 0.13; }
 .node .badge { font-size: 9px; fill: var(--ink-3); }
 .node .warnb { font-size: 10px; }
+.node .obfb { color: #fbbf24; }
 .node .cycleb { font-size: 10px; fill: #fb7185; }
 .node .routeb { fill: #38bdf8; font-size: 8.5px; letter-spacing: 0.3px; }
 
@@ -349,6 +361,16 @@ button { font-family: inherit; }
 .c-num  { color: #b5cea8; }
 .c-call { color: #dcdcaa; }
 .c-var  { color: #9cdcfe; }
+
+/* de-obfuscation: decoded literals get a dashed underline + hover tooltip
+   (native title=), dead "chaff" code is dimmed + struck through instead */
+.c-obf {
+  border-bottom: 1px dashed #f59e0b; color: #fbbf24; cursor: help;
+}
+.c-obf.c-chaff {
+  border-bottom-style: dotted; color: var(--ink-3);
+  text-decoration: line-through; opacity: 0.6;
+}
 
 /* ---------- IDE full-file viewer -------------------------------------- */
 

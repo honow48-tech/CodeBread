@@ -148,6 +148,11 @@ the map already scanned.
 - **Warnings, never silence** — unreadable files, unsupported languages and
   permission problems show up as ⚠ badges and in the warnings list, never
   hidden. Secrets found in config files are always masked.
+- **De-obfuscation, inline** — hex/octal escapes, `chr()`-style
+  character-code math, base64 blobs, and dead "chaff" statements get
+  statically decoded and highlighted right in the code viewer — hover a
+  🔓-underlined span to see what it originally said. See
+  [De-obfuscation](#de-obfuscation) below.
 
 ## Language support
 
@@ -183,6 +188,51 @@ language (full extraction above), not this bucket — only non-code formats
 Only Python's `ast`-based parser captures real parameter type annotations,
 return types, and docstrings — every regex-based parser above extracts
 parameter *names* only.
+
+## De-obfuscation
+
+Some codebases — commercial/nulled PHP scripts especially — ship with
+constant-literal obfuscation: hex/octal escape sequences, `chr()`-style
+character-code arithmetic, base64-encoded string constants, and dead
+"chaff" statements built and thrown away purely to make the file harder to
+read. CodeBread finds and decodes these **statically** and highlights the
+decoded value inline in the code viewer (dashed underline — hover to see
+the original), plus a 🔓 badge on any file with findings.
+
+**The one rule that matters: nothing here is ever executed.** Every
+decoder in [`codebread/deobfuscate.py`](codebread/deobfuscate.py) only
+resolves *constant* expressions — integer literals combined with
+`+ - * / % << >> | & ^`, inside a recognized decode call (`chr(...)`,
+`base64_decode(...)`, ...). A restricted AST walker
+(`safe_eval_int_expr`) is the enforcement point: if an expression touches
+a variable, a function call, a float, or anything else that isn't a bare
+integer literal or one of those operators, it's refused and left alone —
+never guessed at, never evaluated by actually running the target
+language. That's what makes it safe to point at code you don't trust yet,
+which is the same posture as the rest of CodeBread (read-only static
+analysis, nothing scanned is ever run).
+
+| Language | Hex `\xHH` | Octal `\NNN` | Unicode `\uHHHH` / `\u{HHHH}` | Char-code math | Base64 literals | Dead "chaff" statements |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| Python | ✅ | ✅ | ✅ `\uHHHH` | ✅ `chr(...)` | ✅ `base64.b64decode(...)` | –³ |
+| JavaScript / TypeScript / Vue / Svelte | ✅ | ✅ | ✅ both forms | ✅ `String.fromCharCode` / `fromCodePoint` | ✅ `atob(...)` | ✅ (`+` concat) |
+| Java | – | ✅ | ✅ `\uHHHH` | ✅ `(char)(...)` cast | ✅ `Base64.getDecoder().decode(...)` | ✅ (`+` concat) |
+| C# | ✅ | – | ✅ `\uHHHH` | ✅ `(char)(...)` cast | ✅ `Convert.FromBase64String(...)` | ✅ (`+` concat) |
+| Go | ✅ | ✅ | ✅ `\uHHHH` | ✅ `string(rune(...))` | ✅ `base64.StdEncoding.DecodeString(...)` | ✅ (`+` concat) |
+| PHP | ✅ | ✅ | ✅ `\u{HHHH}` only | ✅ `chr(...)` | ✅ `base64_decode(...)` | ✅ (`.` concat) |
+| Ruby | ✅ | ✅ | ✅ both forms | ✅ `<int>.chr` | ✅ `Base64.decode64(...)` | –³ |
+
+Decoded base64 output is re-checked against the same credential-masking
+rule used on config files (`URL_CREDS_RE`) — revealing a hidden literal
+can't be used to route around the "credentials always masked" guarantee
+elsewhere in the tool.
+
+³ Chaff detection needs a reliable statement boundary to prove "this
+literal chain is the *entire* statement, nothing else on either side" —
+the `;`-terminated languages above have one. Python and Ruby don't require
+a terminator, so v1 intentionally reports nothing there rather than guess
+and risk false positives; the escape/char-code/base64 decoders still work
+fully on both.
 
 ## How it classifies layers
 

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -78,6 +78,7 @@ class FileInfo:
     warnings: List[str] = field(default_factory=list)
     db_config: List[str] = field(default_factory=list)       # masked config lines
     source: str = ""                                          # full text (capped)
+    obfuscation: List[Dict] = field(default_factory=list)     # decoded literals (see deobfuscate.py)
 
     def to_dict(self):
         return asdict(self)

@@ -46,11 +46,25 @@ const S = {
   mmViewportEl: null,
   focusMode: false,         // when on, picking a file in the Explorer
                              // spotlights just that file instead of adding to the view
+  obfByFile: new Map(),      // file id -> Map(line -> [obfuscation finding, ...])
 };
 
 const $ = (id) => document.getElementById(id);
 const svg = $("graph"), viewport = $("viewport");
 const edgesG = $("edges-g"), nodesG = $("nodes-g");
+
+/* getBoundingClientRect() forces a synchronous layout — cheap in
+   isolation, but called on every mousemove (tooltip positioning, drag)
+   while the simulation is *also* mutating the SVG every animation frame,
+   the two interleave into "layout thrashing" that alone can tank FPS
+   independent of how many nodes/edges exist. The rect only actually
+   changes on resize or a view-mode switch, so cache it and invalidate on
+   just those. */
+let _svgRectCache = null, _canvasRectCache = null;
+function getSvgRect() { return _svgRectCache || (_svgRectCache = svg.getBoundingClientRect()); }
+function getCanvasRect() { return _canvasRectCache || (_canvasRectCache = $("canvas-wrap").getBoundingClientRect()); }
+function invalidateRectCache() { _svgRectCache = null; _canvasRectCache = null; }
+window.addEventListener("resize", invalidateRectCache);
 
 /* ---------------- boot ---------------- */
 function boot(data) {
@@ -66,6 +80,7 @@ function boot(data) {
   fitView(0.82);
   startLoop();
   bindUI();
+  bindGraphDelegatedEvents();
   bindMinimap();
   maybeShowOnboarding();
   setTimeout(() => $("hint").classList.add("faded"), 6000);
@@ -89,6 +104,14 @@ function indexData() {
     if ((n.kind === "function" || n.kind === "method") && n.file) {
       if (!S.fileFns.has(n.file)) S.fileFns.set(n.file, []);
       S.fileFns.get(n.file).push(n.id);
+    }
+    if (n.kind === "file" && n.obfuscation && n.obfuscation.length) {
+      const byLine = new Map();
+      for (const f of n.obfuscation) {
+        if (!byLine.has(f.line)) byLine.set(f.line, []);
+        byLine.get(f.line).push(f);
+      }
+      S.obfByFile.set(n.id, byLine);
     }
   }
   for (const e of S.data.edges) {
@@ -242,6 +265,20 @@ function buildTreeNode(node, depth) {
     w.textContent = "⚠";
     row.appendChild(w);
   }
+  if (node.obfuscated) {
+    const o = document.createElement("span");
+    o.className = "tobf";
+    o.title = "Obfuscated code detected — decoded inline in the code viewer.";
+    const icon = document.createElementNS(SVGNS, "svg");
+    icon.setAttribute("viewBox", "0 0 24 24");
+    icon.setAttribute("width", "12");
+    icon.setAttribute("height", "12");
+    const use = document.createElementNS(SVGNS, "use");
+    use.setAttribute("href", "#icon-unlock");
+    icon.appendChild(use);
+    o.appendChild(icon);
+    row.appendChild(o);
+  }
   if (!isDir && node.nFunctions) {
     const c = document.createElement("span");
     c.className = "tcount";
@@ -365,6 +402,11 @@ function rebuild() {
     S.elEdges.delete(key);
   }
 
+  // Batch every newly-created element into a fragment and append it once —
+  // appendChild() one at a time on a live, rendered SVG can force a
+  // reflow *per call*; a big reveal (hundreds of new nodes/edges at once)
+  // turns that into a single multi-hundred-millisecond blocking frame.
+  const edgeFrag = document.createDocumentFragment();
   const drawnEdges = [];
   for (const e of newEdges) {
     const key = edgeKey(e);
@@ -374,19 +416,16 @@ function rebuild() {
       vis.setAttribute("class", "edge k-" + e.kind + (e.cycle ? " cycle" : ""));
       const hit = document.createElementNS(SVGNS, "path");
       hit.setAttribute("class", "edge-hit");
-      hit.addEventListener("mousemove", (ev) => showEdgeTooltip(e, ev));
-      hit.addEventListener("mouseleave", hideTooltip);
-      hit.addEventListener("contextmenu", (ev) => {
-        ev.preventDefault(); ev.stopPropagation();
-        onEdgeContextMenu(e, ev);
-      });
-      edgesG.appendChild(vis); edgesG.appendChild(hit);
+      hit.__edge = e;  // delegated handlers on edgesG read this back — see bindGraphDelegatedEvents()
+      edgeFrag.appendChild(vis); edgeFrag.appendChild(hit);
       els = { vis, hit };
       S.elEdges.set(key, els);
     }
     drawnEdges.push({ edge: e, key });
   }
+  edgesG.appendChild(edgeFrag);
   S.drawnEdges = drawnEdges;
+  updateEdgeAnimationMode();
 
   for (const [id, g] of S.elNodes) {
     const n = S.nodesById.get(id);
@@ -394,19 +433,31 @@ function rebuild() {
     g.remove();
     S.elNodes.delete(id);
   }
+  const nodeFrag = document.createDocumentFragment();
   for (const id of S.visible) {
     const n = S.nodesById.get(id);
     if (!n || !passesFilter(n) || S.elNodes.has(id)) continue;
     ensurePos(id);
     const g = makeNodeEl(n);
-    nodesG.appendChild(g);
+    nodeFrag.appendChild(g);
     S.elNodes.set(id, g);
   }
+  nodesG.appendChild(nodeFrag);
 
   applyHighlight();
   updatePositions();
   renderMinimap();
   updateEmptyState();
+}
+
+/* Same dashed line design either way — above this many edges on screen,
+   the per-edge "flowing" CSS animation (continuous repaint, forever, on
+   every one of them) gets frozen to a static dashed line instead. Below
+   the threshold it flows normally. Recomputed on every rebuild() so it
+   tracks what's actually revealed, in either direction. */
+const DENSE_EDGE_THRESHOLD = 120;
+function updateEdgeAnimationMode() {
+  svg.classList.toggle("static-edges", S.drawnEdges.length > DENSE_EDGE_THRESHOLD);
 }
 
 function updateEmptyState() {
@@ -490,6 +541,18 @@ function makeNodeEl(n) {
     wb.textContent = "⚠";
     g.appendChild(wb);
   }
+  if (n.kind === "file" && n.obfuscation && n.obfuscation.length) {
+    const ob = document.createElementNS(SVGNS, "use");
+    ob.setAttribute("class", "obfb");
+    ob.setAttribute("href", "#icon-unlock");
+    const hasWarn = n.warnings && n.warnings.length;
+    const isz = 10.5;
+    ob.setAttribute("x", w / 2 - (hasWarn ? 18 : 2) - isz);
+    ob.setAttribute("y", -h / 2 - 5 - isz + 1.5);
+    ob.setAttribute("width", isz);
+    ob.setAttribute("height", isz);
+    g.appendChild(ob);
+  }
   if ((n.kind === "function" || n.kind === "method") && n.cycle) {
     const cb = document.createElementNS(SVGNS, "text");
     cb.setAttribute("class", "cycleb");
@@ -499,15 +562,11 @@ function makeNodeEl(n) {
     g.appendChild(cb);
   }
 
-  g.addEventListener("mousedown", (ev) => startDragNode(ev, n.id));
-  g.addEventListener("click", (ev) => { ev.stopPropagation(); onNodeClick(n.id); });
-  g.addEventListener("dblclick", (ev) => { ev.stopPropagation(); collapseFile(n.id); });
-  g.addEventListener("mousemove", (ev) => showNodeTooltip(n, ev));
-  g.addEventListener("mouseleave", hideTooltip);
-  g.addEventListener("contextmenu", (ev) => {
-    ev.preventDefault(); ev.stopPropagation();
-    onNodeContextMenu(n, ev);
-  });
+  // No per-node listeners here on purpose — a graph with hundreds of
+  // nodes would mean hundreds of addEventListener calls (x6 each) as
+  // part of the same synchronous burst that creates the elements. All
+  // interaction is handled by fixed, one-time delegated listeners on
+  // nodesG/edgesG/svg — see bindGraphDelegatedEvents().
   return g;
 }
 
@@ -768,7 +827,7 @@ function renderDetail() {
     if (n.code) {
       const lineInfo = n.line ? ` (lines ${n.line}–${n.endLine || n.line})` : "";
       src += `<button class="d-code-toggle" data-lines="${esc(lineInfo)}">▸ View code${esc(lineInfo)}</button>` +
-             `<pre class="d-code hidden"><code>${highlightCode(n.code, n.line || 1)}</code></pre>`;
+             `<pre class="d-code hidden"><code>${highlightCode(n.code, n.line || 1, S.obfByFile.get(n.file))}</code></pre>`;
     }
     if (srcFile && srcFile.source) {
       src += `<button class="d-code-toggle d-ide-open" data-idefile="${esc(srcFileId)}"` +
@@ -873,7 +932,7 @@ function centerOn(id) {
   const p = S.pos.get(id);
   if (!p) return;
   const x = p.x, y = p.y;
-  const r = svg.getBoundingClientRect();
+  const r = getSvgRect();
   animateTf({ x: r.width / 2 - x * S.tf.k, y: r.height / 2 - y * S.tf.k, k: S.tf.k });
 }
 
@@ -886,7 +945,7 @@ function fitView(pad) {
     x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y);
     x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y);
   }
-  const r = svg.getBoundingClientRect();
+  const r = getSvgRect();
   const w = Math.max(x1 - x0, 60), h = Math.max(y1 - y0, 60);
   const k = Math.min(2, Math.min(r.width / w, r.height / h) * (pad || 0.85));
   animateTf({
@@ -975,7 +1034,7 @@ function updateMinimapPositions() {
 function updateMinimapViewport() {
   const t = S.mmT, rectEl = S.mmViewportEl;
   if (!t || !rectEl) return;
-  const r = svg.getBoundingClientRect();
+  const r = getSvgRect();
   if (!r.width || !r.height) return;
   const wx0 = -S.tf.x / S.tf.k, wy0 = -S.tf.y / S.tf.k;
   const wx1 = (r.width - S.tf.x) / S.tf.k, wy1 = (r.height - S.tf.y) / S.tf.k;
@@ -995,7 +1054,7 @@ function bindMinimap() {
     const my = (ev.clientY - rect.top) * (MM_H / rect.height);
     const wx = t.x0 + (mx - t.ox) / t.scale;
     const wy = t.y0 + (my - t.oy) / t.scale;
-    const r = svg.getBoundingClientRect();
+    const r = getSvgRect();
     animateTf({ x: r.width / 2 - wx * S.tf.k, y: r.height / 2 - wy * S.tf.k, k: S.tf.k });
   };
   svgEl.addEventListener("mousedown", (ev) => { dragging = true; panTo(ev); ev.stopPropagation(); });
@@ -1016,6 +1075,20 @@ const MODE_TITLE = {
    the physics (repulsion + spring + light layer grouping); a file's own
    functions are placed deterministically each frame so the ring never
    drifts out of shape or overlaps a neighboring file's ring. */
+/* A dense reveal (clicking a hub called from dozens of files, e.g.) can
+   dump hundreds of nodes/edges into the simulation at once. The physics
+   itself still fully runs every frame — this only shortens how many
+   frames it takes to settle, so a big graph doesn't stay visibly
+   jittering for ~5+ seconds after every interaction. Same rest-state
+   layout either way, just reached faster; nothing about the design or
+   what's shown changes. */
+function alphaDecayFor(n) {
+  if (n > 500) return 0.90;
+  if (n > 250) return 0.94;
+  if (n > 100) return 0.965;
+  return 0.985;
+}
+
 function isOrbitHub(id) {
   const n = S.nodesById.get(id);
   if (!n) return true;
@@ -1145,7 +1218,7 @@ function simTickOrbit() {
   }
 
   layoutSatellites();
-  S.alpha *= 0.985;
+  S.alpha *= alphaDecayFor(S.elNodes.size);
   return true;
 }
 
@@ -1217,7 +1290,7 @@ function simTickFree() {
     p.x += Math.max(-28, Math.min(28, p.vx));
     p.y += Math.max(-28, Math.min(28, p.vy));
   }
-  S.alpha *= 0.985;
+  S.alpha *= alphaDecayFor(nodes.length);
   return true;
 }
 
@@ -1232,12 +1305,19 @@ function startLoop() {
   applyTf();
 }
 
+let mmSkipCounter = 0;
 function updatePositions() {
   for (const [id, el] of S.elNodes) {
     const p = S.pos.get(id);
     el.setAttribute("transform", `translate(${p.x},${p.y})`);
   }
-  updateMinimapPositions();
+  // the minimap is a handful of tiny dots — skipping most frames of its
+  // update is imperceptible there, but on a large graph it's real work
+  // (one more pass over every visible node) piled onto an already-busy
+  // frame, so only pay for it every 3rd frame once things get big.
+  const mmSkip = S.elNodes.size > 250 ? 3 : 1;
+  mmSkipCounter = (mmSkipCounter + 1) % mmSkip;
+  if (mmSkipCounter === 0) updateMinimapPositions();
   for (const { edge, key } of S.drawnEdges) {
     const p = S.pos.get(edge.source), q = S.pos.get(edge.target);
     if (!p || !q) continue;
@@ -1251,6 +1331,60 @@ function updatePositions() {
     els.vis.setAttribute("d", path);
     els.hit.setAttribute("d", path);
   }
+}
+
+/* ---------------- delegated node/edge interaction ----------------------- */
+/* One fixed set of listeners for the whole graph instead of ~6 per node
+   and ~1 per edge — on a large reveal that's the difference between a few
+   listeners total and thousands of addEventListener calls happening in
+   the same synchronous burst as element creation. Every handler here
+   walks up from ev.target to find the .node/.edge-hit it landed on. */
+function bindGraphDelegatedEvents() {
+  nodesG.addEventListener("mousedown", (ev) => {
+    const g = ev.target.closest(".node");
+    if (g) startDragNode(ev, g.dataset.id);
+  });
+  nodesG.addEventListener("click", (ev) => {
+    const g = ev.target.closest(".node");
+    if (!g) return;
+    ev.stopPropagation();
+    onNodeClick(g.dataset.id);
+  });
+  nodesG.addEventListener("dblclick", (ev) => {
+    const g = ev.target.closest(".node");
+    if (!g) return;
+    ev.stopPropagation();
+    collapseFile(g.dataset.id);
+  });
+  nodesG.addEventListener("contextmenu", (ev) => {
+    const g = ev.target.closest(".node");
+    if (!g) return;
+    const n = S.nodesById.get(g.dataset.id);
+    if (!n) return;
+    ev.preventDefault(); ev.stopPropagation();
+    onNodeContextMenu(n, ev);
+  });
+  edgesG.addEventListener("contextmenu", (ev) => {
+    const hit = ev.target.closest(".edge-hit");
+    if (!hit || !hit.__edge) return;
+    ev.preventDefault(); ev.stopPropagation();
+    onEdgeContextMenu(hit.__edge, ev);
+  });
+  // hover/tooltip: bound on svg (not nodesG/edgesG individually) so
+  // moving off a node onto blank canvas or an edge still fires — sibling
+  // elements don't bubble into each other, only up their own ancestors.
+  svg.addEventListener("mousemove", (ev) => {
+    if (S.drag) return;
+    const g = ev.target.closest(".node");
+    if (g) {
+      const n = S.nodesById.get(g.dataset.id);
+      if (n) { showNodeTooltip(n, ev); return; }
+    }
+    const hit = ev.target.closest(".edge-hit");
+    if (hit && hit.__edge) { showEdgeTooltip(hit.__edge, ev); return; }
+    hideTooltip();
+  });
+  svg.addEventListener("mouseleave", hideTooltip);
 }
 
 /* ---------------- pan / zoom / drag ---------------- */
@@ -1282,7 +1416,7 @@ function bindUI() {
   });
   svg.addEventListener("wheel", (ev) => {
     ev.preventDefault();
-    const r = svg.getBoundingClientRect();
+    const r = getSvgRect();
     const mx = ev.clientX - r.left, my = ev.clientY - r.top;
     const k2 = Math.max(0.12, Math.min(3.2, S.tf.k * (ev.deltaY < 0 ? 1.13 : 0.885)));
     S.tf.x = mx - (mx - S.tf.x) * (k2 / S.tf.k);
@@ -1393,7 +1527,7 @@ function dragNodeMove(ev) {
   const d = S.drag;
   if (Math.abs(ev.clientX - d.sx) + Math.abs(ev.clientY - d.sy) > 3) d.moved = true;
   if (!d.moved) return;
-  const r = svg.getBoundingClientRect();
+  const r = getSvgRect();
   const p = S.pos.get(d.id);
   p.fx = (ev.clientX - r.left - S.tf.x) / S.tf.k;
   p.fy = (ev.clientY - r.top - S.tf.y) / S.tf.k;
@@ -1528,36 +1662,49 @@ function onCanvasContextMenu(ev) {
 }
 
 /* ---------------- tooltip ---------------- */
+let _lastTooltipKey = null;
 function showNodeTooltip(n, ev) {
   const tt = $("tooltip");
-  let html = `<div class="tt-name">${esc(n.label)}${n.kind === "function" || n.kind === "method" ? "()" : ""}</div>`;
-  if (n.description) html += `<div class="tt-desc">${esc(n.description)}</div>`;
-  const meta = [LAYER_LABEL[nodeLayer(n)], n.kind];
-  if (n.file && n.kind !== "file") meta.push(n.file);
-  html += `<div class="tt-meta">${meta.map(esc).join(" · ")}</div>`;
-  if (n.kind === "file" && S.fileFns.get(n.id)?.length && !S.expanded.has(n.id))
-    html += `<div class="tt-meta">click to slice open ${S.fileFns.get(n.id).length} function(s)</div>`;
-  tt.innerHTML = html;
+  const key = "n:" + n.id;
+  // Rewriting innerHTML forces the browser to re-parse+re-layout the
+  // tooltip; skip it when the cursor is just jittering within the same
+  // node's shape (very common while actually reading a tooltip) instead
+  // of redoing it on every single mousemove tick.
+  if (_lastTooltipKey !== key) {
+    _lastTooltipKey = key;
+    let html = `<div class="tt-name">${esc(n.label)}${n.kind === "function" || n.kind === "method" ? "()" : ""}</div>`;
+    if (n.description) html += `<div class="tt-desc">${esc(n.description)}</div>`;
+    const meta = [LAYER_LABEL[nodeLayer(n)], n.kind];
+    if (n.file && n.kind !== "file") meta.push(n.file);
+    html += `<div class="tt-meta">${meta.map(esc).join(" · ")}</div>`;
+    if (n.kind === "file" && S.fileFns.get(n.id)?.length && !S.expanded.has(n.id))
+      html += `<div class="tt-meta">click to slice open ${S.fileFns.get(n.id).length} function(s)</div>`;
+    tt.innerHTML = html;
+  }
   positionTooltip(ev);
 }
 function showEdgeTooltip(e, ev) {
   const tt = $("tooltip");
-  const kind = { call: "function call", api: "API call", db: "database access",
-                 include: "file include/import", link: "page navigation",
-                 contains: "contains" }[e.kind] || e.kind;
-  tt.innerHTML = `<div class="tt-name">${esc(e.label || kind)}</div>` +
-                 `<div class="tt-meta">${esc(kind)}</div>`;
+  const key = "e:" + edgeKey(e);
+  if (_lastTooltipKey !== key) {
+    _lastTooltipKey = key;
+    const kind = { call: "function call", api: "API call", db: "database access",
+                   include: "file include/import", link: "page navigation",
+                   contains: "contains" }[e.kind] || e.kind;
+    tt.innerHTML = `<div class="tt-name">${esc(e.label || kind)}</div>` +
+                   `<div class="tt-meta">${esc(kind)}</div>`;
+  }
   positionTooltip(ev);
 }
 function positionTooltip(ev) {
-  const tt = $("tooltip"), r = $("canvas-wrap").getBoundingClientRect();
+  const tt = $("tooltip"), r = getCanvasRect();
   tt.classList.remove("hidden");
   let x = ev.clientX - r.left + 16, y = ev.clientY - r.top + 14;
   if (x + tt.offsetWidth > r.width - 12) x = ev.clientX - r.left - tt.offsetWidth - 12;
   if (y + tt.offsetHeight > r.height - 12) y = ev.clientY - r.top - tt.offsetHeight - 10;
   tt.style.left = x + "px"; tt.style.top = y + "px";
 }
-function hideTooltip() { $("tooltip").classList.add("hidden"); }
+function hideTooltip() { _lastTooltipKey = null; $("tooltip").classList.add("hidden"); }
 
 /* ---------------- search ---------------- */
 function renderSearch(q) {
@@ -1634,6 +1781,37 @@ function hlLine(line) {
   return out + esc(line.slice(last));
 }
 
+/* ---------------- de-obfuscation inline highlighting -------------------- */
+/* Findings are computed statically in Python (codebread/deobfuscate.py) —
+   nothing here decodes anything, it just renders what was already found.
+   Strategy: swap each finding's original text for a NUL-delimited
+   placeholder before handing the line to hlLine() (so the normal syntax
+   highlighter can't split it across token spans), then splice the real
+   decoded/annotated markup in after highlighting. */
+function hlLineWithObfuscation(line, findings) {
+  if (!findings || !findings.length) return hlLine(line);
+  let work = line;
+  const swaps = [];
+  findings.forEach((f, i) => {
+    const idx = work.indexOf(f.original);
+    if (idx === -1) return;  // line was truncated/edited relative to source
+    const placeholder = "\0OBF" + i + "\0";
+    work = work.slice(0, idx) + placeholder + work.slice(idx + f.original.length);
+    swaps.push({ placeholder, f });
+  });
+  let html = hlLine(work);
+  for (const { placeholder, f } of swaps) {
+    const shown = f.kind === "chaff" ? f.original : (f.decoded || f.original);
+    const tip = f.kind === "chaff"
+      ? "dead code — built but never used"
+      : `deobfuscated (${f.kind}) — originally: ${f.original}`;
+    const cls = "c-obf" + (f.kind === "chaff" ? " c-chaff" : "");
+    const replacement = `<span class="${cls}" title="${esc(tip)}">${esc(shown)}</span>`;
+    html = html.split(esc(placeholder)).join(replacement);
+  }
+  return html;
+}
+
 /* ---------------- view modes: chart / IDE ---------------- */
 function setView(view) {
   S.view = view;
@@ -1641,6 +1819,7 @@ function setView(view) {
     b.classList.toggle("active", b.dataset.view === view));
   $("canvas-wrap").classList.toggle("hidden", view === "ide");
   $("ide").classList.toggle("hidden", view !== "ide");
+  invalidateRectCache();  // canvas-wrap/svg geometry changes when toggled hidden
   if (view === "ide") {
     $("detail").classList.add("hidden");   // keep the editor clean
     if (!S.ideFile) {
@@ -1692,9 +1871,10 @@ function openIde(fileId, focusId) {
     list.appendChild(d);
   }
 
+  const obfLines = S.obfByFile.get(fileId);
   $("ide-code").innerHTML = f.source.split("\n").map((line, i) =>
     `<div class="cl" data-l="${i + 1}"><span class="c-ln">${i + 1}</span>` +
-    `<span class="c-tx">${hlLine(line)}</span></div>`).join("");
+    `<span class="c-tx">${hlLineWithObfuscation(line, obfLines && obfLines.get(i + 1))}</span></div>`).join("");
 
   const focusFn = focusId && S.nodesById.get(focusId);
   if (focusFn) focusIde(focusFn);
@@ -1715,10 +1895,10 @@ function focusIde(fn) {
 
 function closeIde() { setView("chart"); }
 
-function highlightCode(code, startLine) {
+function highlightCode(code, startLine, obfLines) {
   return code.split("\n").map((line, i) =>
     `<span class="c-ln">${String(startLine + i).padStart(4, " ")}</span>` +
-    hlLine(line)).join("\n");
+    hlLineWithObfuscation(line, obfLines && obfLines.get(startLine + i))).join("\n");
 }
 
 /* ---------------- onboarding ---------------- */

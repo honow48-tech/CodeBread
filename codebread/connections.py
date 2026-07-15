@@ -209,7 +209,7 @@ def build_graph(files: List[FileInfo], tree: Dict,
             "loc": f.loc, "warnings": f.warnings,
             "nFunctions": len(f.functions),
             "imports": f.imports[:30], "dbConfig": f.db_config,
-            "source": f.source,
+            "source": f.source, "obfuscation": f.obfuscation,
         })
         for fn in f.functions:
             nid = f"{f.path}::{fn.name}@{fn.line}"
@@ -393,6 +393,7 @@ def build_graph(files: List[FileInfo], tree: Dict,
     # ---- stats ---------------------------------------------------------
     n_fns = sum(1 for n in nodes if n["kind"] in ("function", "method"))
     n_orphans = sum(1 for n in nodes if n.get("orphan"))
+    n_obfuscated = sum(1 for f in files if f.obfuscation)
     stats = {
         "files": len(files),
         "functions": n_fns,
@@ -402,6 +403,7 @@ def build_graph(files: List[FileInfo], tree: Dict,
         "warnings": len(warnings) + sum(len(f.warnings) for f in files),
         "orphans": n_orphans,
         "cycles": len(cycles),
+        "obfuscated": n_obfuscated,
     }
     return {"nodes": nodes, "edges": edges, "tree": tree,
             "warnings": warnings, "cycles": cycles, "stats": stats}

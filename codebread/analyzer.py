@@ -9,6 +9,7 @@ from typing import Callable, Dict, Optional
 from . import __version__
 from .classifier import classify
 from .connections import build_graph
+from .deobfuscate import scan_obfuscation
 from .parsers import parse_file
 from .scanner import read_text, scan
 
@@ -40,6 +41,11 @@ def analyze(root: str,
                 from .parsers.generic_parser import redact_secrets
                 src = redact_secrets(src)
             info.source = src
+        if text:
+            info.obfuscation = [
+                {"line": f.line, "kind": f.kind, "original": f.original, "decoded": f.decoded}
+                for f in scan_obfuscation(text, meta["language"])
+            ]
         parsed.append(info)
         for w in info.warnings:
             if w.startswith("Unsupported:"):
@@ -78,6 +84,8 @@ def _annotate_tree(node: Dict, by_path: Dict) -> None:
             node["nFunctions"] = len(info.functions)
             if info.warnings and "warning" not in node:
                 node["warning"] = "parse"
+            if info.obfuscation:
+                node["obfuscated"] = True
         return
     layers = set()
     for child in node.get("children", []):
