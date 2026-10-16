@@ -14,9 +14,11 @@
   --ink-3: #9a978e;
   --line: #e3e0d7;
   --line2: #cfcbc0;
-  --accent: #b0541c;
+  /* default: the logo's cyan, deepened for text contrast on paper (~5:1).
+     Viewers can pick another from the top bar, see applyAccent() */
+  --accent: var(--accent-pick, #0e7490);
   --accent-ink: #fff;
-  --soft: rgba(176, 84, 28, 0.08);
+  --soft: color-mix(in srgb, var(--accent) 9%, transparent);
   --warn: #98580f;
   --bad: #a3372a;
   --shadow: 0 18px 40px -22px rgba(30, 24, 12, 0.35);
@@ -51,9 +53,9 @@
     --ink-3: #6c6a63;
     --line: #2a2a27;
     --line2: #3a3934;
-    --accent: #e59a62;
-    --accent-ink: #1a0f08;
-    --soft: rgba(229, 154, 98, 0.11);
+    --accent: var(--accent-pick-dark, #67e8f9);  /* the logo's exact cyan */
+    --accent-ink: #062a33;
+    --soft: color-mix(in srgb, var(--accent) 12%, transparent);
     --warn: #e2a85c;
     --bad: #ef8a7a;
     --shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.7);
@@ -161,6 +163,36 @@ kbd {
 .sr-item .sr-name { font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
 .sr-item .sr-path { margin-left: auto; color: var(--ink-3); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sr-empty { padding: 10px 12px; color: var(--ink-3); font-size: 13px; }
+
+/* ---------- accent picker ------------------------------------------------ */
+
+#accent-wrap { position: relative; }
+#accent-btn {
+  width: 30px; height: 30px; display: grid; place-items: center; cursor: pointer;
+  background: none; border: 1px solid var(--line2); border-radius: 50%;
+  transition: border-color .2s, transform .15s;
+}
+#accent-btn:hover { border-color: var(--ink); }
+#accent-btn:active { transform: scale(.94); }
+#accent-btn span { width: 16px; height: 16px; border-radius: 50%; background: var(--accent); transition: background .3s; }
+#accent-pop {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 60; width: 236px;
+  padding: 14px; background: var(--panel); border: 1px solid var(--line2); border-radius: 12px;
+  box-shadow: var(--shadow); animation: drop .18s var(--ease);
+}
+#accent-swatches { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin: 12px 0; }
+.swatch {
+  aspect-ratio: 1; border-radius: 50%; cursor: pointer; padding: 0;
+  border: 2px solid var(--panel); box-shadow: 0 0 0 1px var(--line2);
+  transition: box-shadow .2s, transform .15s;
+}
+.swatch:hover { transform: scale(1.1); }
+.swatch.on { box-shadow: 0 0 0 2px var(--ink); }
+.accent-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.accent-custom { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+#accent-input { width: 28px; height: 28px; padding: 0; border: 1px solid var(--line2); border-radius: 6px; background: none; cursor: pointer; }
+#accent-input::-webkit-color-swatch-wrapper { padding: 2px; }
+#accent-input::-webkit-color-swatch { border: 0; border-radius: 4px; }
 
 /* ---------- layout ----------------------------------------------------- */
 

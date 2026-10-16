@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/codebread/"><img alt="PyPI" src="https://img.shields.io/pypi/v/codebread?color=b0541c&label=pypi"></a>
+  <a href="https://pypi.org/project/codebread/"><img alt="PyPI" src="https://img.shields.io/pypi/v/codebread?color=0e7490&label=pypi&cacheSeconds=3600"></a>
   <a href="https://github.com/honow48-tech/CodeBread/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/honow48-tech/CodeBread/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-5f5c55">
   <img alt="No dependencies" src="https://img.shields.io/badge/dependencies-none-5f5c55">
@@ -66,6 +66,12 @@ it, all the way from a frontend `fetch()` to the database table.
 
 Read any file with an outline and syntax highlighting, without leaving the page.
 
+### Your colours
+
+The report follows your system's light or dark mode. Click the dot at the
+right of the top bar to pick an accent colour; your choice is saved in your
+browser.
+
 <p align="center">
   <img src="https://cdn.jsdelivr.net/gh/honow48-tech/CodeBread@main/assets/code.png" alt="The Code view: file tree, function outline and highlighted source" width="880">
 </p>
@@ -112,7 +118,7 @@ codebread --path . --html report.html --no-serve
 | Python | ✓ | Flask, FastAPI, Django | requests, httpx, aiohttp | SQLAlchemy, Django, peewee |
 | JavaScript / TypeScript | ✓ | Express, Fastify, Koa, NestJS | fetch, axios | Prisma, Mongoose, Sequelize, Knex, TypeORM |
 | Vue / Svelte | ✓ | same as JS | fetch, axios | same as JS |
-| PHP | ✓ | Laravel | – | raw SQL |
+| PHP | ✓ | Laravel (incl. closures) | – | Eloquent, migrations, raw SQL |
 | Java | ✓ | Spring | – | raw SQL |
 | C# | ✓ | ASP.NET | – | raw SQL |
 | Go | ✓ | Gin, net/http | – | raw SQL |
@@ -138,7 +144,7 @@ structural regex with brace matching and gets parameter names only.
 | Java | regex | ✓ | ✓ | ✓ | – | – | ✓ | ✓ | – |
 | C# | regex | ✓ | ✓ | ✓ | – | – | ✓ | ✓ | – |
 | Go | regex | ✓ | structs | ✓ | – | – | ✓ | ✓ | – |
-| PHP | regex | ✓ | ✓ | ✓ | – | – | ✓ | ✓ | ✓ |
+| PHP | regex | ✓ | ✓ | ✓ | – | Eloquent + migrations | ✓ | ✓ | ✓ |
 | Ruby | regex | ✓ | ✓ | ✓ | – | – | ✓ | ✓ | ✓ |
 | SQL | regex | – | – | – | – | tables + columns | ✓ | – | – |
 | Config (`.env`, json, yaml, toml, ini, xml) | key scan | – | – | – | – | – | – | – | – |

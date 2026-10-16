@@ -47,6 +47,19 @@
       <button data-layer="database">Database</button>
       <button data-layer="config">Config</button>
     </nav>
+
+    <div id="accent-wrap">
+      <button id="accent-btn" title="Accent color" aria-label="Accent color"
+              aria-haspopup="dialog" aria-expanded="false"><span></span></button>
+      <div id="accent-pop" class="hidden" role="dialog" aria-label="Accent color">
+        <div class="kicker">Accent color</div>
+        <div id="accent-swatches"></div>
+        <div class="accent-row">
+          <label class="accent-custom"><input type="color" id="accent-input"> Custom</label>
+          <button id="accent-reset" class="chip">Reset</button>
+        </div>
+      </div>
+    </div>
   </header>
 
   <div id="main">

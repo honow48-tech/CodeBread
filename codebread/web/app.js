@@ -71,6 +71,7 @@ window.addEventListener("resize", invalidateRectCache);
 /* ---------------- boot ---------------- */
 function boot(data) {
   S.data = data;
+  bindAccent();  // first, so a saved accent applies before anything animates in
   indexData();
   renderHeader();
   renderLanguages();
@@ -2412,6 +2413,55 @@ function esc(s) {
     c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+
+/* ---------------- accent color ----------------
+   The viewer's pick sets --accent-pick; CSS derives everything else (--soft,
+   focus rings, highlights). Dark mode gets a lightened mix so it stays legible.
+   Saved per browser: it's a personal preference, not part of the report. */
+const ACCENTS = [["Cyan (logo)", null], ["Blue", "#2563eb"], ["Crust", "#b0541c"],
+  ["Green", "#3f7d3a"], ["Violet", "#7c4dbd"], ["Rose", "#c2416b"], ["Graphite", "#3f3f46"]];
+const ACCENT_DEFAULT = "#0e7490";  // keep in sync with --accent in style.css
+const ACCENT_KEY = "codebread_accent";
+
+function applyAccent(hex, save = true) {
+  const st = document.documentElement.style;
+  if (hex) {
+    st.setProperty("--accent-pick", hex);
+    st.setProperty("--accent-pick-dark", `color-mix(in srgb, ${hex} 62%, white)`);
+  } else {
+    st.removeProperty("--accent-pick");
+    st.removeProperty("--accent-pick-dark");
+  }
+  if (save) {
+    try { hex ? localStorage.setItem(ACCENT_KEY, hex) : localStorage.removeItem(ACCENT_KEY); } catch (e) { /* no storage */ }
+  }
+  document.querySelectorAll(".swatch").forEach(b => b.classList.toggle("on", (b.dataset.hex || null) === hex));
+  $("accent-input").value = hex || ACCENT_DEFAULT;
+}
+
+function bindAccent() {
+  $("accent-swatches").innerHTML = ACCENTS.map(([name, hex]) =>
+    `<button class="swatch" ${hex ? `data-hex="${hex}"` : ""} title="${name}" aria-label="${name}" ` +
+    `style="background:${hex || ACCENT_DEFAULT}"></button>`).join("");
+  let saved = null;
+  try { saved = localStorage.getItem(ACCENT_KEY); } catch (e) { /* no storage */ }
+  applyAccent(saved, false);
+
+  const btn = $("accent-btn"), pop = $("accent-pop");
+  const toggle = (open) => {
+    pop.classList.toggle("hidden", !open);
+    btn.setAttribute("aria-expanded", String(open));
+  };
+  btn.addEventListener("click", () => toggle(pop.classList.contains("hidden")));
+  $("accent-swatches").addEventListener("click", (ev) => {
+    const sw = ev.target.closest(".swatch");
+    if (sw) applyAccent(sw.dataset.hex || null);
+  });
+  $("accent-input").addEventListener("input", (ev) => applyAccent(ev.target.value));
+  $("accent-reset").addEventListener("click", () => applyAccent(null));
+  document.addEventListener("click", (ev) => { if (!ev.target.closest("#accent-wrap")) toggle(false); });
+  document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") toggle(false); });
+}
 
 /* ---------------- start ----------------
    Must run after every top-level const above is initialized: the static
