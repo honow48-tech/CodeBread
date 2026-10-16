@@ -81,3 +81,15 @@ def test_live_server_rejects_drive_absolute_traversal(live_server):
     with pytest.raises(urllib.error.HTTPError) as exc:
         urllib.request.urlopen(f"{live_server}/{drive}/Windows/win.ini")
     assert exc.value.code == 403
+
+
+def test_app_js_boots_after_all_top_level_consts():
+    # The static --html export inlines the data, so boot() runs synchronously;
+    # if it's triggered above a top-level const, that const is still in its
+    # temporal dead zone and the page dies with a ReferenceError.
+    import re
+    with open(os.path.join(WEB_DIR, "app.js"), encoding="utf-8") as f:
+        js = f.read()
+    boot_at = js.index("boot(window.CODEBREAD_DATA)")
+    last_const = max(m.start() for m in re.finditer(r"^const ", js, re.M))
+    assert boot_at > last_const

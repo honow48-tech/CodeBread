@@ -26,18 +26,19 @@
       <span id="project-name"></span>
     </div>
 
-    <div id="stats"></div>
+    <nav id="view-mode" aria-label="View">
+      <button data-view="overview" class="active">Overview</button>
+      <button data-view="connect">Connections</button>
+      <button data-view="chart">Map</button>
+      <button data-view="ide">Code</button>
+    </nav>
 
     <div id="search-wrap">
       <input id="search" type="text" autocomplete="off" spellcheck="false"
-             placeholder="Search functions, files, tables…  ( / )">
+             placeholder="Search files, functions, tables">
+      <kbd id="search-kbd">/</kbd>
       <div id="search-results" class="hidden"></div>
     </div>
-
-    <nav id="view-mode" aria-label="View mode">
-      <button data-view="chart" class="active">◈ Chart</button>
-      <button data-view="ide">⌗ IDE</button>
-    </nav>
 
     <nav id="layer-filter" aria-label="Filter by layer">
       <button data-layer="all" class="active">All</button>
@@ -49,8 +50,77 @@
   </header>
 
   <div id="main">
+    <div id="overview" class="hidden">
+      <div id="ov-inner">
+        <header id="ov-hero">
+          <div class="kicker">Codebase map</div>
+          <h1 id="ov-title"></h1>
+          <p id="ov-lede">Every file in this project, which part of the app it belongs to, and what it
+            talks to. Hover a row to preview it. Click it to explore its connections.</p>
+          <div id="stats"></div>
+          <div id="langs" class="hidden">
+            <div class="lang-head">
+              <span class="kicker">Languages</span>
+              <span id="lang-total" class="kicker"></span>
+            </div>
+            <div id="lang-bar" role="img"></div>
+            <ul id="lang-list"></ul>
+          </div>
+          <div id="ai-brief" class="hidden">
+            <div class="ai-text">
+              <div class="kicker">For AI assistants</div>
+              <p>One Markdown file that explains this whole codebase: <b id="ai-tokens"></b>.
+                Paste it into your AI chat, or save it next to your code, so the AI doesn't
+                have to read every file.</p>
+            </div>
+            <div class="ai-actions">
+              <button id="ai-copy" class="btn solid">Copy for AI</button>
+              <button id="ai-download" class="btn">Download .md</button>
+              <button id="ai-preview" class="btn">Preview</button>
+            </div>
+            <pre id="ai-md" class="hidden"></pre>
+          </div>
+        </header>
+
+
+        <div id="ov-head" class="ov-head">
+          <h2>Files &amp; tables</h2>
+          <span id="ov-count" class="kicker"></span>
+        </div>
+        <div id="ov-grid">
+          <table id="ov-table">
+            <thead><tr>
+              <th data-sort="name">Name</th>
+              <th data-sort="layer">Layer</th>
+              <th data-sort="fns" class="num">Functions</th>
+              <th data-sort="links" class="num">Connections</th>
+              <th data-sort="issues" class="num">Issues</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+          <aside id="ov-preview" aria-live="polite"></aside>
+        </div>
+      </div>
+    </div>
+
+    <div id="connect" class="hidden">
+      <aside id="cx-side">
+        <div id="cx-side-head">
+          <input id="cx-search" type="search" autocomplete="off" spellcheck="false"
+                 placeholder="Filter files and tables" aria-label="Filter files and tables">
+          <div id="cx-count" class="kicker"></div>
+        </div>
+        <div id="cx-list"></div>
+      </aside>
+      <div id="cx-main">
+        <nav id="cx-trail" aria-label="Visited files"></nav>
+        <header id="cx-head"></header>
+        <div id="cx-stage"></div>
+      </div>
+    </div>
+
     <aside id="sidebar">
-      <div id="sidebar-title">Explorer</div>
+      <div id="sidebar-title">Files</div>
       <div id="tree" role="tree"></div>
     </aside>
 
@@ -59,12 +129,6 @@
 
       <svg id="graph" role="img" aria-label="Codebase connection graph">
         <defs>
-          <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
-            <feGaussianBlur stdDeviation="4" result="b"/>
-            <feMerge>
-              <feMergeNode in="b"/><feMergeNode in="SourceGraphic"/>
-            </feMerge>
-          </filter>
           <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4"
                   markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0.6 L7.4,4 L0,7.4 z" fill="context-stroke"/>
@@ -94,7 +158,7 @@
           <circle cx="82" cy="80" r="8" fill="none" stroke="#2dd4bf" stroke-width="3" opacity="0.7"/>
         </svg>
         <div id="empty-title">Pick a file to begin</div>
-        <div id="empty-msg">Select a file in the Explorer on the left to see its functions
+        <div id="empty-msg">Pick a file in the list on the left to see its functions
           and how it connects to the rest of the codebase.</div>
       </div>
 
@@ -105,24 +169,23 @@
       </div>
 
       <div id="zoom-controls">
-        <button id="zoom-in"  title="Zoom in">+</button>
-        <button id="zoom-out" title="Zoom out">−</button>
-        <button id="zoom-fit" title="Fit view">⤢</button>
-        <button id="layout-toggle" class="active" title="Orbit layout — files float, functions ring around them (click to switch)">◎</button>
-        <button id="focus-toggle" title="Focus mode: clear the chart, then pick one file at a time from the Explorer">⌖</button>
+        <button id="zoom-in"  title="Zoom in" aria-label="Zoom in"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" class="ln"/></svg></button>
+        <button id="zoom-out" title="Zoom out" aria-label="Zoom out"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" class="ln"/></svg></button>
+        <button id="zoom-fit" title="Fit everything in view" aria-label="Fit view"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" class="ln"/></svg></button>
+        <button id="layout-toggle" class="active" title="Orbit layout — files float, functions ring around them (click to switch)" aria-label="Switch layout"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2"/><circle cx="8" cy="8" r="5.5" class="ln"/></svg></button>
+        <button id="focus-toggle" title="Focus mode: clear the map, then pick one file at a time from the list" aria-label="Focus mode"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5" class="ln"/><path d="M8 1v3M8 12v3M1 8h3M12 8h3" class="ln"/></svg></button>
       </div>
 
-      <div id="hint">click a node to reveal its connections · ← → step through neighbors · ↑ ↓ history · drag to pan · scroll to zoom · right-click for actions</div>
+      <div id="hint">Click a box to see what it connects to · scroll to zoom · drag to move</div>
       <div id="tooltip" class="hidden"></div>
       <div id="context-menu" class="hidden" role="menu"></div>
     </div>
 
     <div id="ide" class="hidden">
       <div id="ide-head">
-        <span id="ide-icon">📄</span>
         <span id="ide-path"></span>
         <span id="ide-lang"></span>
-        <button id="ide-close" title="Back to chart (Esc)">◈ Chart</button>
+        <button id="ide-close" title="Back to the map (Esc)">Back to map</button>
       </div>
       <div id="ide-body">
         <aside id="ide-outline">
@@ -176,13 +239,14 @@
         <circle cx="60" cy="46" r="10" fill="#67e8f9"/>
         <circle cx="82" cy="80" r="9" fill="#0a1526" stroke="#2dd4bf" stroke-width="3.5"/>
       </svg>
-      <h3>Welcome to CodeBread</h3>
+      <h3>How to read the map</h3>
       <ol>
-        <li>Click a <b>file</b> to slice it open into its functions.</li>
-        <li>Click a <b>function</b> to reveal what it calls and what calls it — its
-          full chain lights up, everything else dims.</li>
-        <li>Toggle <b>⌖ Focus</b> (bottom-right) to clear the chart and inspect
-          files one at a time from the Explorer instead of the full overview.</li>
+        <li>Each <b>box</b> is a file. Its color shows the layer: frontend, backend, database or config.</li>
+        <li>Click a file to open it up into its <b>functions</b>. Click a function to light up
+          what it calls and what calls it.</li>
+        <li><b>Lines</b> are connections. The legend (bottom-left) says what each line style means.</li>
+        <li>Keyboard: <kbd>/</kbd> search · <kbd>←</kbd> <kbd>→</kbd> step through neighbors ·
+          <kbd>↑</kbd> <kbd>↓</kbd> history · right-click for more.</li>
       </ol>
       <button id="onboarding-dismiss">Got it</button>
     </div>

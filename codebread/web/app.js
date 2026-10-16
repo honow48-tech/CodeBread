@@ -2,9 +2,11 @@
 (function () {
 "use strict";
 
+// CSS custom properties so light/dark themes recolor the graph for free.
+// SVG presentation attributes can't take var(), so marks set these via .style.
 const LAYER_COLOR = {
-  frontend: "#0284c7", backend: "#0d9488", database: "#8b5cf6",
-  config: "#d97706", unknown: "#6678d0",
+  frontend: "var(--frontend)", backend: "var(--backend)", database: "var(--database)",
+  config: "var(--config)", unknown: "var(--unknown)",
 };
 const LAYER_LABEL = {
   frontend: "Frontend", backend: "Backend", database: "Database",
@@ -71,6 +73,7 @@ function boot(data) {
   S.data = data;
   indexData();
   renderHeader();
+  renderLanguages();
   renderLegend();
   renderTree();
   initialVisible();
@@ -82,20 +85,11 @@ function boot(data) {
   bindUI();
   bindGraphDelegatedEvents();
   bindMinimap();
-  maybeShowOnboarding();
-  setTimeout(() => $("hint").classList.add("faded"), 6000);
+  bindOverview();
+  setView("overview");
 }
 
-if (window.CODEBREAD_DATA) {
-  boot(window.CODEBREAD_DATA);
-} else {
-  fetch("data.json").then(r => r.json()).then(boot)
-    .catch(err => {
-      document.body.innerHTML =
-        "<p style='padding:40px;font-family:monospace'>Failed to load " +
-        "data.json — " + err + "</p>";
-    });
-}
+// (started at the bottom of this file — see "start")
 
 /* ---------------- indexing ---------------- */
 function indexData() {
@@ -132,18 +126,91 @@ function passesFilter(n) {
 }
 
 /* ---------------- header / legend / warnings ---------------- */
+/* ---------------- language breakdown ----------------
+   Lines of code per language: one stacked bar + a legend. The bar wipes in
+   once, legend percentages count up; hover links a segment to its entry. */
+const LANG_NAME = {
+  javascript: "JavaScript", typescript: "TypeScript", python: "Python", php: "PHP",
+  csharp: "C#", cpp: "C++", go: "Go", java: "Java", ruby: "Ruby", sql: "SQL", vue: "Vue",
+  html: "HTML", css: "CSS", scss: "SCSS", markdown: "Markdown", config: "Config",
+  kotlin: "Kotlin", swift: "Swift", rust: "Rust", dart: "Dart", shell: "Shell", unknown: "Other",
+};
+const LANG_SLOTS = 7;  // ponytail: top 7 get their own color; the rest fold into "Other"
+
+function renderLanguages() {
+  const by = new Map();
+  for (const n of S.data.nodes) {
+    if (n.kind !== "file") continue;
+    const k = n.language || "unknown";
+    const v = by.get(k) || { lines: 0, files: 0 };
+    v.lines += n.loc || 0; v.files += 1;
+    by.set(k, v);
+  }
+  let langs = [...by].map(([k, v]) => ({ k, ...v })).filter(l => l.lines > 0)
+    .sort((a, b) => b.lines - a.lines);
+  const total = langs.reduce((s, l) => s + l.lines, 0);
+  if (!total) return;
+  // undetected files and the long tail share one "Other" bucket, always last
+  let known = langs.filter(l => l.k !== "unknown"), rest = langs.filter(l => l.k === "unknown");
+  if (known.length > LANG_SLOTS) { rest = [...known.slice(LANG_SLOTS), ...rest]; known = known.slice(0, LANG_SLOTS); }
+  langs = rest.length ? [...known, { k: "other", lines: rest.reduce((s, l) => s + l.lines, 0),
+    files: rest.reduce((s, l) => s + l.files, 0),
+    names: rest.map(l => l.k === "unknown" ? "undetected" : (LANG_NAME[l.k] || l.k)) }] : known;
+  const fmt = (n) => n.toLocaleString();
+  const name = (l) => l.k === "other" ? "Other" : (LANG_NAME[l.k] || l.k.charAt(0).toUpperCase() + l.k.slice(1));
+  const color = (l, i) => l.k === "other" || l.k === "unknown" ? "var(--l-other)" : `var(--l${i + 1})`;
+  const pct = (l) => l.lines / total * 100;
+  const files = langs.reduce((s, l) => s + l.files, 0);
+
+  $("lang-total").textContent = `${fmt(total)} lines · ${fmt(files)} files`;
+  $("lang-bar").setAttribute("aria-label", langs.map(l => `${name(l)} ${pct(l).toFixed(1)}%`).join(", "));
+  $("lang-bar").innerHTML = langs.map((l, i) =>
+    `<span data-i="${i}" style="flex-grow:${l.lines};background:${color(l, i)}" ` +
+    `title="${esc(name(l))} · ${pct(l).toFixed(1)}%"></span>`).join("");
+  $("lang-list").innerHTML = langs.map((l, i) =>
+    `<li data-i="${i}" style="--i:${i}"${l.names ? ` title="${esc(l.names.join(", "))}"` : ""}>` +
+    `<span class="lg-dot" style="background:${color(l, i)}"></span>` +
+    `<span class="lang-name">${esc(name(l))}</span>` +
+    `<b data-pct="${pct(l).toFixed(1)}">${pct(l).toFixed(1)}%</b>` +
+    `<small>${fmt(l.lines)} lines · ${fmt(l.files)} file${l.files === 1 ? "" : "s"}</small></li>`).join("");
+  $("langs").classList.remove("hidden");
+
+  // percentages count up alongside the bar wipe (skipped for reduced motion)
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const els = [...$("lang-list").querySelectorAll("b[data-pct]")];
+    const t0 = performance.now() + 250, dur = 1100;
+    const tick = (now) => {
+      const t = Math.min(1, Math.max(0, (now - t0) / dur)), e = 1 - Math.pow(1 - t, 3);
+      els.forEach(b => { b.textContent = (b.dataset.pct * e).toFixed(1) + "%"; });
+      if (t < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  // hovering either side highlights the same language in both
+  const box = $("langs");
+  const focus = (i) => {
+    box.classList.toggle("focus", i != null);
+    box.querySelectorAll("[data-i]").forEach(el => el.classList.toggle("on", el.dataset.i === i));
+  };
+  box.addEventListener("mouseover", (ev) => focus(ev.target.closest("[data-i]")?.dataset.i ?? null));
+  box.addEventListener("mouseleave", () => focus(null));
+}
+
 function renderHeader() {
-  $("project-name").textContent = "· " + (S.data.meta?.name || "");
-  document.title = "CodeBread — " + (S.data.meta?.name || "codebase map");
+  const name = S.data.meta?.name || "";
+  $("project-name").textContent = name;
+  $("ov-title").textContent = name || "Your codebase";
+  document.title = "CodeBread — " + (name || "codebase map");
   const st = S.data.stats || {};
-  const stat = (label, v) => `<span class="stat"><b>${v ?? 0}</b> ${label}</span>`;
+  const stat = (label, v) => `<div class="stat"><b>${v ?? 0}</b><span>${label}</span></div>`;
   let html = stat("files", st.files) + stat("functions", st.functions) +
              stat("tables", st.tables) + stat("connections", st.connections);
   $("stats").innerHTML = html;
   if (st.warnings) {
     const b = document.createElement("button");
     b.className = "stat warn-btn";
-    b.innerHTML = `⚠ <b>${st.warnings}</b> warnings`;
+    b.innerHTML = `<b>${st.warnings}</b><span>warnings — view</span>`;
     b.onclick = toggleWarnings;
     $("stats").appendChild(b);
   }
@@ -153,7 +220,7 @@ function renderHeader() {
     if (st.cycles) bits.push(`${st.cycles} cycle${st.cycles === 1 ? "" : "s"}`);
     const b = document.createElement("button");
     b.className = "stat warn-btn insight-btn";
-    b.innerHTML = `◎ <b>${bits.join(" · ")}</b>`;
+    b.innerHTML = `<b>${(st.orphans || 0) + (st.cycles || 0)}</b><span>${bits.join(" · ")} — view</span>`;
     b.onclick = toggleInsights;
     $("stats").appendChild(b);
   }
@@ -216,14 +283,14 @@ function toggleWarnings() {
 }
 
 function renderLegend() {
-  const rows = [
-    ["frontend", "Frontend"], ["backend", "Backend"],
-    ["database", "Database / tables"], ["config", "Config"],
-    ["unknown", "Unclassified"],
-  ].map(([k, label]) =>
+  const layers = Object.entries(LAYER_LABEL).map(([k, label]) =>
     `<div class="lg-row"><span class="lg-dot" style="background:${LAYER_COLOR[k]}"></span>${label}</div>`);
-  rows.push(`<div class="lg-row" style="margin-top:3px;color:var(--ink-3)">─ call · api · db · include · page</div>`);
-  $("legend").innerHTML = rows.join("");
+  const lines = [["call", "calls a function"], ["api", "API request"], ["db", "reads / writes a table"],
+                 ["include", "imports a file"], ["link", "links to a page"]].map(([k, label]) =>
+    `<div class="lg-row"><svg class="lg-line" viewBox="0 0 24 6"><line class="edge k-${k}" x1="0" y1="3" x2="24" y2="3"/></svg>${label}</div>`);
+  $("legend").innerHTML =
+    `<div class="lg-col"><div class="lg-h">Color = layer</div>${layers.join("")}</div>` +
+    `<div class="lg-col"><div class="lg-h">Line = relationship</div>${lines.join("")}</div>`;
 }
 
 /* ---------------- sidebar tree ---------------- */
@@ -250,7 +317,7 @@ function buildTreeNode(node, depth) {
 
   const dot = document.createElement("span");
   dot.className = "tdot";
-  dot.style.background = LAYER_COLOR[node.layer] || "rgba(103,232,249,0.18)";
+  dot.style.background = LAYER_COLOR[node.layer] || "var(--line2)";
   row.appendChild(dot);
 
   const name = document.createElement("span");
@@ -261,7 +328,7 @@ function buildTreeNode(node, depth) {
   if (node.warning) {
     const w = document.createElement("span");
     w.className = "twarn";
-    w.title = "This entry has a warning — see ⚠ in the header.";
+    w.title = "This entry has a warning — see Warnings on the Overview.";
     w.textContent = "⚠";
     row.appendChild(w);
   }
@@ -434,11 +501,13 @@ function rebuild() {
     S.elNodes.delete(id);
   }
   const nodeFrag = document.createDocumentFragment();
+  let enterIdx = 0;
   for (const id of S.visible) {
     const n = S.nodesById.get(id);
     if (!n || !passesFilter(n) || S.elNodes.has(id)) continue;
     ensurePos(id);
     const g = makeNodeEl(n);
+    g.style.setProperty("--i", Math.min(enterIdx++, 24));  // stagger cap: big reveals don't drag on
     nodeFrag.appendChild(g);
     S.elNodes.set(id, g);
   }
@@ -469,7 +538,7 @@ function updateEmptyState() {
     $("empty-msg").textContent = "CodeBread didn't find any scannable files in this folder.";
   } else if (S.visible.size === 0) {
     $("empty-title").textContent = "Pick a file to begin";
-    $("empty-msg").textContent = "Select a file in the Explorer on the left to see its " +
+    $("empty-msg").textContent = "Pick a file in the list on the left to see its " +
       "functions and how it connects to the rest of the codebase.";
   } else {
     $("empty-title").textContent = "Nothing to show";
@@ -484,7 +553,7 @@ function nodeSize(n) {
     return { w: Math.max(74, label.length * 7.4 + 34), h: 30, r: 9 };
   }
   if (n.kind === "table") {
-    return { w: Math.max(66, label.length * 7.2 + 40), h: 30, r: 15 };
+    return { w: Math.max(66, label.length * 7.2 + 30), h: 30, r: 15 };
   }
   return { w: Math.max(56, label.length * 6.6 + 26), h: 22, r: 11 };
 }
@@ -501,21 +570,20 @@ function makeNodeEl(n) {
   rect.setAttribute("x", -w / 2); rect.setAttribute("y", -h / 2);
   rect.setAttribute("width", w); rect.setAttribute("height", h);
   rect.setAttribute("rx", r);
-  rect.setAttribute("stroke", color);
-  if (n.kind === "table") rect.setAttribute("fill", "rgba(139,92,246,0.14)");
+  rect.style.stroke = color;
   g.appendChild(rect);
 
   const dot = document.createElementNS(SVGNS, "circle");
   dot.setAttribute("class", "ldot");
   dot.setAttribute("cx", -w / 2 + 12); dot.setAttribute("cy", 0);
   dot.setAttribute("r", n.kind === "file" ? 4 : 3);
-  dot.setAttribute("fill", color);
+  dot.style.fill = color;
   g.appendChild(dot);
 
   const label = document.createElementNS(SVGNS, "text");
   label.setAttribute("x", -w / 2 + 21);
   label.setAttribute("font-size", n.kind === "file" ? "11.5" : "10.5");
-  label.textContent = n.kind === "table" ? "🗃 " + n.label : n.label;
+  label.textContent = n.label;
   g.appendChild(label);
 
   if (n.kind === "file" && n.nFunctions) {
@@ -796,7 +864,7 @@ function renderDetail() {
   if (!S.selected) { panel.classList.add("hidden"); return; }
   const n = S.nodesById.get(S.selected);
   const color = LAYER_COLOR[nodeLayer(n)];
-  let html = `<span class="d-kind" style="color:${color};border-color:${color}55">` +
+  let html = `<span class="d-kind" style="color:${color};border-color:color-mix(in srgb, ${color} 40%, transparent)">` +
              `${esc(n.kind)} · ${esc(LAYER_LABEL[nodeLayer(n)])}</span>`;
   html += `<div class="d-name">${esc(n.label)}${n.kind === "function" || n.kind === "method" ? "()" : ""}</div>`;
 
@@ -832,7 +900,7 @@ function renderDetail() {
     if (srcFile && srcFile.source) {
       src += `<button class="d-code-toggle d-ide-open" data-idefile="${esc(srcFileId)}"` +
              ` data-idefocus="${n.kind === "file" ? "" : esc(n.id)}"` +
-             ` style="margin-top:6px">⛶ Open full file (IDE view)</button>`;
+             ` style="margin-top:6px">Open in Code view →</button>`;
     }
     if (src) html += section("Source", src);
   }
@@ -896,13 +964,15 @@ function linkRow(id, e) {
                     link: "page", contains: "" }[e.kind] || e.kind;
   return `<div class="d-link" data-jump="${esc(id)}" title="${esc(e.label || "")}">` +
          `<span class="dl-kind">${kindTag}</span>` +
-         `<span class="dl-label">${esc(t.label)}${t.kind === "table" ? " 🗃" : ""}</span></div>`;
+         `<span class="dl-label">${esc(t.label)}</span></div>`;
 }
 
 /* ---------------- jump / center ---------------- */
 function jumpTo(id, opts) {
   const n = S.nodesById.get(id);
   if (!n) return;
+  if (S.view === "connect") { cxGo(rowIdOf(id)); return; }  // stay in the explorer
+  if (S.view === "overview") setView("chart");
   if (S.view === "ide") {
     const fileId = n.kind === "file" ? n.id : n.file;
     if (fileId && S.nodesById.get(fileId)?.source) {
@@ -1007,7 +1077,7 @@ function renderMinimap() {
     if (!n) continue;
     const c = document.createElementNS(SVGNS, "circle");
     c.setAttribute("r", n.kind === "file" ? 1.6 : 1);
-    c.setAttribute("fill", LAYER_COLOR[nodeLayer(n)]);
+    c.style.fill = LAYER_COLOR[nodeLayer(n)];
     c.setAttribute("opacity", n.kind === "file" ? 0.9 : 0.55);
     svgEl.appendChild(c);
     S.mmDots.set(id, c);
@@ -1063,7 +1133,10 @@ function bindMinimap() {
 }
 
 const MODE_CYCLE = ["orbit", "free"];
-const MODE_ICON = { orbit: "◎", free: "✺" };
+const MODE_ICON = {
+  orbit: '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2"/><circle cx="8" cy="8" r="5.5" class="ln"/></svg>',
+  free: '<svg viewBox="0 0 16 16"><circle cx="4" cy="5" r="1.6"/><circle cx="11" cy="4" r="1.6"/><circle cx="7" cy="11" r="1.6"/><circle cx="12.5" cy="11.5" r="1.6"/></svg>',
+};
 const MODE_TITLE = {
   orbit: "Orbit layout — files float, functions ring around them (click to switch)",
   free: "Free layout — everything force-directed (click to switch)",
@@ -1432,7 +1505,7 @@ function bindUI() {
     const i = MODE_CYCLE.indexOf(S.mode);
     S.mode = MODE_CYCLE[(i + 1) % MODE_CYCLE.length];
     const btn = $("layout-toggle");
-    btn.textContent = MODE_ICON[S.mode];
+    btn.innerHTML = MODE_ICON[S.mode];
     btn.title = MODE_TITLE[S.mode];
     btn.classList.toggle("active", S.mode === "orbit");
     S.alpha = 0.9;
@@ -1481,7 +1554,7 @@ function bindUI() {
       if (!$("ide").classList.contains("hidden")) { closeIde(); return; }
       select(null); closeSearch();
     }
-    if (typing || !$("ide").classList.contains("hidden")) return;
+    if (typing || S.view !== "chart") return;
     if (ev.key === "ArrowRight") { if (S.selected) { ev.preventDefault(); navStep(1); } }
     else if (ev.key === "ArrowLeft") { if (S.selected) { ev.preventDefault(); navStep(-1); } }
     else if (ev.key === "ArrowUp") { if (S.crumbIdx > 0) { ev.preventDefault(); historyBack(); } }
@@ -1505,6 +1578,8 @@ function setFilter(layer) {
   document.querySelectorAll("#layer-filter button").forEach(b =>
     b.classList.toggle("active", b.dataset.layer === layer));
   if (S.selected && !passesFilter(S.nodesById.get(S.selected))) select(null);
+  if (S.view === "overview") renderOverview();
+  if (S.view === "connect") renderConnectList();
   rebuild(); reheat();
 }
 
@@ -1582,15 +1657,16 @@ function hideContextMenu() {
 }
 
 function copyToClipboard(text) {
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(text).catch(() => {});
-    return;
-  }
-  const ta = document.createElement("textarea");
-  ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
-  document.body.appendChild(ta); ta.select();
-  try { document.execCommand("copy"); } catch (e) { /* clipboard unavailable */ }
-  document.body.removeChild(ta);
+  const fallback = () => {
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); } catch (e) { /* clipboard unavailable */ }
+    document.body.removeChild(ta);
+  };
+  // file:// pages and some browsers reject the async API — don't fail silently
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).catch(fallback);
+  else fallback();
 }
 
 function onNodeContextMenu(n, ev) {
@@ -1677,6 +1753,9 @@ function showNodeTooltip(n, ev) {
     const meta = [LAYER_LABEL[nodeLayer(n)], n.kind];
     if (n.file && n.kind !== "file") meta.push(n.file);
     html += `<div class="tt-meta">${meta.map(esc).join(" · ")}</div>`;
+    const count = (m) => (m.get(n.id) || []).filter(e => e.kind !== "contains").length;
+    html += `<div class="tt-links"><span><b>${count(S.outEdges)}</b> outgoing</span>` +
+            `<span><b>${count(S.inEdges)}</b> incoming</span></div>`;
     if (n.kind === "file" && S.fileFns.get(n.id)?.length && !S.expanded.has(n.id))
       html += `<div class="tt-meta">click to slice open ${S.fileFns.get(n.id).length} function(s)</div>`;
     tt.innerHTML = html;
@@ -1812,14 +1891,428 @@ function hlLineWithObfuscation(line, findings) {
   return html;
 }
 
+/* ---------------- overview table ---------------- */
+// One row per file/table: what layer it is, how big, how connected.
+// Hover (or keyboard focus) previews a row and marks the rows it talks to.
+const OV = { sort: "links", dir: -1, rows: null, previewed: null };
+
+// the overview row (file or table) a node belongs to
+function rowIdOf(id) {
+  const n = S.nodesById.get(id);
+  return !n ? null : (n.kind === "file" || n.kind === "table") ? n.id : n.file;
+}
+
+function overviewRows() {
+  if (OV.rows) return OV.rows;
+  const rowOf = (n) => rowIdOf(n.id);
+  const links = new Map();  // row id -> Map(other row id -> edge count)
+  const bump = (a, b) => {
+    if (!links.has(a)) links.set(a, new Map());
+    links.get(a).set(b, (links.get(a).get(b) || 0) + 1);
+  };
+  for (const e of S.data.edges) {
+    if (e.kind === "contains") continue;
+    const a = S.nodesById.get(e.source), b = S.nodesById.get(e.target);
+    const ra = a && rowOf(a), rb = b && rowOf(b);
+    if (!ra || !rb || ra === rb || !S.nodesById.has(ra) || !S.nodesById.has(rb)) continue;
+    bump(ra, rb); bump(rb, ra);
+  }
+  OV.rows = S.data.nodes.filter(n => n.kind === "file" || n.kind === "table").map(n => {
+    const fns = (S.fileFns.get(n.id) || []).map(id => S.nodesById.get(id));
+    return {
+      n, fns, links: links.get(n.id) || new Map(),
+      issues: (n.warnings?.length || 0) + (n.obfuscation?.length ? 1 : 0) + fns.filter(f => f.cycle).length,
+    };
+  });
+  return OV.rows;
+}
+
+function renderOverview() {
+  const key = {
+    name: r => (r.n.file || r.n.label).toLowerCase(), layer: r => nodeLayer(r.n),
+    fns: r => r.fns.length, links: r => r.links.size, issues: r => r.issues,
+  }[OV.sort];
+  const rows = overviewRows().filter(r => passesFilter(r.n)).sort((a, b) => {
+    const x = key(a), y = key(b);
+    return (x < y ? -1 : x > y ? 1 : 0) * OV.dir;
+  });
+  document.querySelectorAll("#ov-table th[data-sort]").forEach(th =>
+    th.setAttribute("aria-sort", th.dataset.sort !== OV.sort ? "none" : OV.dir > 0 ? "ascending" : "descending"));
+  const max = Math.max(1, ...rows.map(r => r.links.size));
+  $("ov-table").tBodies[0].innerHTML = rows.map((r, i) => {
+    const n = r.n, path = n.file || n.id;
+    const dir = path.endsWith(n.label) ? path.slice(0, -n.label.length) : "";
+    return `<tr data-id="${esc(n.id)}" tabindex="0" style="--i:${Math.min(i, 24)}">` +
+      `<td><div class="ov-name"><span class="tdot" style="background:${LAYER_COLOR[nodeLayer(n)]}"></span>` +
+      `<span><b>${esc(n.label)}</b><small>${esc(dir)}</small></span></div></td>` +
+      `<td class="ov-layer">${esc(LAYER_LABEL[nodeLayer(n)])}</td>` +
+      `<td class="num">${r.fns.length || "–"}</td>` +
+      `<td class="num"><span class="ov-bar"><i style="width:${(r.links.size / max * 100).toFixed(1)}%"></i></span>${r.links.size}</td>` +
+      `<td class="num">${r.issues ? `<span class="ov-issue">${r.issues}</span>` : "–"}</td></tr>`;
+  }).join("") || `<tr><td colspan="5" class="ov-empty">Nothing in this layer — try “All”.</td></tr>`;
+  $("ov-count").textContent = `${rows.length} of ${overviewRows().length}`;
+  OV.previewed = null;
+  if (rows.length) previewOverview(rows[0].n.id);
+  else $("ov-preview").innerHTML = "";
+}
+
+function previewOverview(id) {
+  const r = overviewRows().find(x => x.n.id === id);
+  if (!r || OV.previewed === id) return;
+  OV.previewed = id;
+  const n = r.n, layer = nodeLayer(n);
+  const dot = (m) => `<span class="tdot" style="background:${LAYER_COLOR[nodeLayer(m)]}"></span>`;
+  const talks = [...r.links].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  let h = `<div class="kicker" style="color:${LAYER_COLOR[layer]}">${esc(LAYER_LABEL[layer])} · ` +
+          `${esc(n.kind === "table" ? "table" : (n.language || "file"))}${n.loc ? ` · ${n.loc} lines` : ""}</div>` +
+          `<h3>${esc(n.label)}</h3>`;
+  if (n.description) h += `<p>${esc(n.description)}</p>`;
+  for (const w of (n.warnings || []).slice(0, 3)) h += `<div class="d-warn">${esc(w)}</div>`;
+  if (r.fns.length)
+    h += `<h4>Functions <span>${r.fns.length}</span></h4><ul>` +
+         r.fns.slice(0, 8).map(f => `<li>${esc(f.label)}()${f.cycle ? `<i>cycle</i>` : f.orphan ? `<i>unused?</i>` : ""}</li>`).join("") +
+         (r.fns.length > 8 ? `<li class="more">+ ${r.fns.length - 8} more</li>` : "") + `</ul>`;
+  h += `<h4>Talks to <span>${r.links.size}</span></h4>` + (talks.length
+    ? `<ul>${talks.map(([oid, c]) => { const o = S.nodesById.get(oid);
+        return `<li>${dot(o)}${esc(o.label)}<i>${c} link${c === 1 ? "" : "s"}</i></li>`; }).join("")}</ul>`
+    : `<p class="faint">Nothing — this one stands alone.</p>`);
+  h += `<div class="ov-cta">Click the row to explore its connections →</div>`;
+  const p = $("ov-preview");
+  p.innerHTML = h;
+  p.classList.remove("swap"); void p.offsetWidth; p.classList.add("swap");  // restart the fade
+  $("ov-table").querySelectorAll("tbody tr").forEach(tr => {
+    tr.classList.toggle("on", tr.dataset.id === id);
+    tr.classList.toggle("rel", r.links.has(tr.dataset.id));
+  });
+}
+
+// same as clicking the node on the map: files open into their functions,
+// everything else reveals its neighbors — so the map never opens on a lone box
+function openOnMap(id) {
+  if (!id) return;
+  setView("chart");
+  jumpTo(id);
+  onNodeClick(id);
+}
+
+function bindOverview() {
+  const tb = $("ov-table").tBodies[0];
+  const rowAt = (ev) => ev.target.closest("tr[data-id]");
+  const open = (tr) => cxGo(tr?.dataset.id);
+  tb.addEventListener("mouseover", (ev) => { const tr = rowAt(ev); if (tr) previewOverview(tr.dataset.id); });
+  tb.addEventListener("focusin", (ev) => { const tr = rowAt(ev); if (tr) previewOverview(tr.dataset.id); });
+  tb.addEventListener("click", (ev) => open(rowAt(ev)));
+  tb.addEventListener("keydown", (ev) => { if (ev.key === "Enter") open(rowAt(ev)); });
+  bindConnect();
+  renderAiBrief();
+  document.querySelectorAll("#ov-table th[data-sort]").forEach(th => th.addEventListener("click", () => {
+    OV.dir = OV.sort === th.dataset.sort ? -OV.dir : (th.dataset.sort === "name" ? 1 : -1);
+    OV.sort = th.dataset.sort;
+    renderOverview();
+  }));
+}
+
+/* ---------------- connections explorer ----------------
+   One file at a time: who uses it (left), the file itself (middle), what it
+   uses (right), wired function-to-function. Scales to big repos because it
+   only ever draws one file's neighbourhood. Clicking a neighbour moves the
+   focus; leaving for the map or code is always an explicit button. */
+const CX = { focus: null, trail: [], extra: { in: 0, out: 0 }, codeFile: null, wires: [] };
+const CX_SIDE = 24;        // neighbours per side; "Show more" pages in 2x this at a time
+const CX_ROWS = 5;         // function rows per neighbour card
+const CX_FOCUS_ROWS = 60;  // rows on the focused card
+const CX_LIST = 400;       // ponytail: list DOM cap; the filter box reaches the rest
+const KIND_TAG = { call: "calls", api: "API", db: "DB", include: "imports", link: "links" };
+
+function dirOf(n) {
+  if (n.kind === "table") return "table" + (n.file ? " · " + n.file : "");
+  const p = n.file || n.id;
+  return p.endsWith(n.label) ? p.slice(0, -n.label.length) : "";
+}
+
+// cross-file edges of a row, grouped by the other row
+function cxLinks(id) {
+  const uses = new Map(), usedBy = new Map();
+  const add = (m, k, e) => { if (!m.has(k)) m.set(k, []); m.get(k).push(e); };
+  for (const m of [id, ...(S.fileFns.get(id) || [])]) {
+    for (const e of S.outEdges.get(m) || []) {
+      const o = e.kind !== "contains" && rowIdOf(e.target);
+      if (o && o !== id && S.nodesById.has(o)) add(uses, o, e);
+    }
+    for (const e of S.inEdges.get(m) || []) {
+      const o = e.kind !== "contains" && rowIdOf(e.source);
+      if (o && o !== id && S.nodesById.has(o)) add(usedBy, o, e);
+    }
+  }
+  return { uses, usedBy };
+}
+
+function cxGo(id) {
+  if (!id || !S.nodesById.has(id)) return;
+  const at = CX.trail.indexOf(id);
+  CX.trail = at >= 0 ? CX.trail.slice(0, at + 1) : [...CX.trail, id].slice(-8);
+  CX.focus = id;
+  CX.extra = { in: 0, out: 0 };
+  if (S.view !== "connect") setView("connect");
+  else renderConnect();
+  $("cx-main").scrollTop = 0;
+}
+
+function renderConnectList() {
+  const q = $("cx-search").value.trim().toLowerCase();
+  const rows = overviewRows()
+    .filter(r => passesFilter(r.n) && (!q || (r.n.file || r.n.label).toLowerCase().includes(q) || r.n.label.toLowerCase().includes(q)))
+    .sort((a, b) => b.links.size - a.links.size || (a.n.file || a.n.label).localeCompare(b.n.file || b.n.label));
+  $("cx-count").textContent = `${rows.length} file${rows.length === 1 ? "" : "s"} · sorted by connections`;
+  $("cx-list").innerHTML = rows.slice(0, CX_LIST).map(r =>
+    `<button class="cx-item${r.n.id === CX.focus ? " on" : ""}" data-id="${esc(r.n.id)}">` +
+    `<span class="tdot" style="background:${LAYER_COLOR[nodeLayer(r.n)]}"></span>` +
+    `<span class="cx-iname"><b>${esc(r.n.label)}</b><small>${esc(dirOf(r.n))}</small></span>` +
+    `<i title="connected files">${r.links.size}</i></button>`).join("") +
+    (rows.length > CX_LIST ? `<div class="cx-more">${rows.length - CX_LIST} more — type to narrow the list</div>` : "") ||
+    `<div class="cx-more">Nothing matches.</div>`;
+}
+
+function cxCard(oid, es, dir, i) {
+  const o = S.nodesById.get(oid);
+  const ends = new Map();  // function on the neighbour's side -> edge kind
+  for (const e of es) {
+    const end = dir === "in" ? e.source : e.target;
+    if (end !== oid && !ends.has(end)) ends.set(end, e.kind);
+  }
+  const lis = [...ends].slice(0, CX_ROWS).map(([fid, k]) =>
+    `<li data-fn="${esc(fid)}"><span>${esc(S.nodesById.get(fid)?.label)}()</span><i>${esc(KIND_TAG[k] || k)}</i></li>`).join("") +
+    (ends.size > CX_ROWS ? `<li class="more">+ ${ends.size - CX_ROWS} more</li>` : "");
+  return `<div class="cx-card cx-n" tabindex="0" data-id="${esc(oid)}" style="--r:${i}" title="Focus on ${esc(o.file || o.label)}">` +
+    `<h4><span class="tdot" style="background:${LAYER_COLOR[nodeLayer(o)]}"></span>` +
+    `<span class="cx-name">${esc(o.label)}</span><small>${es.length} link${es.length === 1 ? "" : "s"}</small></h4>` +
+    (lis ? `<ul>${lis}</ul>` : "") + `</div>`;
+}
+
+function renderConnect() {
+  if (!CX.focus || !S.nodesById.has(CX.focus)) {
+    const top = [...overviewRows()].sort((a, b) => b.links.size - a.links.size)[0];
+    CX.focus = top ? top.n.id : null;
+    CX.trail = CX.focus ? [CX.focus] : [];
+  }
+  const id = CX.focus, stage = $("cx-stage");
+  $("cx-list").querySelectorAll(".cx-item").forEach(el => {
+    const on = el.dataset.id === id;
+    el.classList.toggle("on", on);
+    if (on) el.scrollIntoView({ block: "nearest" });
+  });
+  if (!id) {
+    $("cx-head").innerHTML = $("cx-trail").innerHTML = "";
+    stage.innerHTML = `<div class="cx-empty">No files to show.</div>`;
+    return;
+  }
+  const n = S.nodesById.get(id), layer = nodeLayer(n), isTable = n.kind === "table";
+  const fns = (S.fileFns.get(id) || []).map(f => S.nodesById.get(f));
+  const { uses, usedBy } = cxLinks(id);
+  CX.codeFile = n.source ? id : (n.file && S.nodesById.get(n.file)?.source ? n.file : null);
+
+  $("cx-trail").innerHTML = CX.trail.map(t => t === id
+    ? `<span class="cur">${esc(S.nodesById.get(t)?.label)}</span>`
+    : `<button data-id="${esc(t)}">${esc(S.nodesById.get(t)?.label)}</button>`).join(`<span class="sep">›</span>`);
+  $("cx-trail").classList.toggle("hidden", CX.trail.length < 2);  // one item would just repeat the title
+  const head = $("cx-head");
+  head.innerHTML =
+    `<div class="kicker" style="color:${LAYER_COLOR[layer]}">${esc(LAYER_LABEL[layer])} · ` +
+    `${esc(isTable ? "table" : (n.language || "file"))}${n.loc ? ` · ${n.loc} lines` : ""}</div>` +
+    `<div class="cx-title"><h2>${esc(n.label)}</h2><div class="cx-actions">` +
+    `<button class="btn" data-act="map">Open on map</button>` +
+    (CX.codeFile ? `<button class="btn" data-act="code">View code</button>` : "") + `</div></div>` +
+    (n.file && n.file !== n.label ? `<div class="cx-path">${esc(n.file)}</div>` : "") +
+    `<div class="cx-stats"><span><b>${usedBy.size}</b> used by</span><span><b>${uses.size}</b> uses</span>` +
+    (isTable ? `<span><b>${(n.fields || []).length}</b> columns</span>` : `<span><b>${fns.length}</b> functions</span>`) +
+    (n.warnings?.length ? `<span class="warn"><b>${n.warnings.length}</b> warnings</span>` : "") + `</div>`;
+  head.style.animation = "none"; void head.offsetWidth; head.style.animation = "";  // replay entrance
+
+  // focused card: linked functions first, the rest dimmed
+  const linked = new Set();
+  for (const es of [...uses.values(), ...usedBy.values()]) for (const e of es) { linked.add(e.source); linked.add(e.target); }
+  const items = isTable
+    ? (n.fields || []).map(f => `<li><span>${esc(f)}</span></li>`)
+    : [...fns].sort((a, b) => linked.has(b.id) - linked.has(a.id) || (a.line || 0) - (b.line || 0))
+        .map(f => `<li data-fn="${esc(f.id)}"${linked.has(f.id) ? "" : ` class="quiet"`}><span>${esc(f.label)}()</span><i>L${f.line || "?"}</i></li>`);
+  const total = items.length;
+  const focusCard = `<div class="cx-card focus" data-id="${esc(id)}">` +
+    `<h4><span class="tdot" style="background:${LAYER_COLOR[layer]}"></span><span class="cx-name">${esc(n.label)}</span>` +
+    `<small>${isTable ? "table" : `${fns.length} fn`}</small></h4>` +
+    (total ? `<ul>${items.slice(0, CX_FOCUS_ROWS).join("")}${total > CX_FOCUS_ROWS ? `<li class="more">+ ${total - CX_FOCUS_ROWS} more</li>` : ""}</ul>` : "") +
+    `</div>`;
+
+  const side = (map, dir) => {
+    const list = [...map].sort((a, b) => b[1].length - a[1].length);
+    const shown = list.slice(0, CX_SIDE + CX.extra[dir]);
+    const empty = dir === "in" ? "Nothing else in the project calls into this."
+      : isTable ? "Tables don't call anything." : "It doesn't use any other file.";
+    return `<div class="cx-col"><div class="cx-colh">${dir === "in" ? "Used by" : "Uses"} · ${list.length}</div>` +
+      (shown.map(([oid, es], i) => cxCard(oid, es, dir, i)).join("") || `<div class="cx-empty">${empty}</div>`) +
+      (list.length > shown.length ? `<button class="chip cx-all" data-dir="${dir}">Show ${Math.min(CX_SIDE * 2, list.length - shown.length)} more · ${list.length - shown.length} not shown</button>` : "") +
+      `</div>`;
+  };
+  stage.innerHTML = `<svg class="cx-wires" aria-hidden="true"></svg>` + side(usedBy, "in") +
+    `<div class="cx-col"><div class="cx-colh">${isTable ? "This table" : "This file"}</div>${focusCard}</div>` +
+    side(uses, "out");
+
+  // wires, deduped by the pair of rows they connect
+  const focusEl = stage.querySelector(".cx-card.focus");
+  const rowIn = (card, fid) => card.querySelector(`li[data-fn="${CSS.escape(fid)}"]`) || card.querySelector("h4");
+  const seen = new Set();
+  CX.wires = [];
+  for (const [dir, map] of [["in", usedBy], ["out", uses]]) {
+    for (const [oid, es] of map) {
+      const card = stage.querySelector(`.cx-n[data-id="${CSS.escape(oid)}"]`);
+      if (!card) continue;
+      for (const e of es) {
+        const nEnd = dir === "in" ? e.source : e.target, fEnd = dir === "in" ? e.target : e.source;
+        const nLi = rowIn(card, nEnd), fLi = rowIn(focusEl, fEnd);
+        const key = dir + (nLi.dataset.fn || oid + "#h") + ">" + (fLi.dataset.fn || "#h");
+        if (seen.has(key)) continue;
+        seen.add(key);
+        CX.wires.push({ dir, card, nLi, fLi, nid: oid, fid: fLi.dataset.fn || id, kind: e.kind });
+      }
+    }
+  }
+  requestAnimationFrame(() => drawWires(true));
+}
+
+function drawWires(animate) {
+  const stage = $("cx-stage"), svgEl = stage.querySelector(".cx-wires"), focusEl = stage.querySelector(".cx-card.focus");
+  if (!svgEl || !focusEl || !stage.offsetWidth) return;
+  svgEl.setAttribute("width", stage.scrollWidth);
+  svgEl.setAttribute("height", stage.scrollHeight);
+  // offsets ignore CSS transforms, so this is exact even while cards animate in
+  const at = (card, li) => ({ l: card.offsetLeft, r: card.offsetLeft + card.offsetWidth,
+                              y: card.offsetTop + li.offsetTop + li.offsetHeight / 2 });
+  svgEl.innerHTML = CX.wires.map(w => {
+    const N = at(w.card, w.nLi), F = at(focusEl, w.fLi);
+    const [x1, y1, x2, y2] = w.dir === "in" ? [N.r, N.y, F.l, F.y] : [F.r, F.y, N.l, N.y];
+    const d = Math.max(40, (x2 - x1) / 2);
+    return `<g class="e k-${w.kind}" data-n="${esc(w.nid)}" data-f="${esc(w.fid)}">` +
+      `<path d="M${x1},${y1} C${x1 + d},${y1} ${x2 - d},${y2} ${x2},${y2}"/>` +
+      `<circle cx="${x1}" cy="${y1}" r="3"/><circle class="m" cx="${x2}" cy="${y2}" r="3"/></g>`;
+  }).join("");
+  const still = !animate || matchMedia("(prefers-reduced-motion: reduce)").matches;
+  svgEl.querySelectorAll("g.e").forEach((g, i) => {
+    if (still) { g.classList.add("drawn"); return; }
+    const p = g.querySelector("path"), len = p.getTotalLength();
+    p.style.strokeDasharray = len; p.style.strokeDashoffset = len;
+    p.getBoundingClientRect();
+    p.style.transition = `stroke-dashoffset .9s cubic-bezier(.2,.7,.1,1) ${150 + (i % 16) * 35}ms`;
+    p.style.strokeDashoffset = 0;
+    p.addEventListener("transitionend", () => { p.removeAttribute("style"); g.classList.add("drawn"); }, { once: true });
+  });
+}
+
+// hover a neighbour card or a function row on the focused card: keep only its wires lit
+function cxHover(h) {
+  const stage = $("cx-stage");
+  stage.classList.toggle("hover", !!h);
+  const onN = new Set(), onF = new Set(h && h.f ? [h.f] : []);
+  stage.querySelectorAll(".cx-wires g.e").forEach(g => {
+    const hit = !!h && (h.n ? g.dataset.n === h.n : g.dataset.f === h.f);
+    g.classList.toggle("on", hit);
+    if (hit) { onN.add(g.dataset.n); onF.add(g.dataset.f); }
+  });
+  stage.querySelectorAll(".cx-n").forEach(el => el.classList.toggle("on", onN.has(el.dataset.id)));
+  stage.querySelectorAll(".cx-card.focus li[data-fn]").forEach(li => li.classList.toggle("hot", onF.has(li.dataset.fn)));
+}
+
+function bindConnect() {
+  const stage = $("cx-stage");
+  let last = null;
+  stage.addEventListener("mouseover", (ev) => {
+    const card = ev.target.closest(".cx-n"), li = ev.target.closest(".cx-card.focus li[data-fn]");
+    const key = card ? "n" + card.dataset.id : li ? "f" + li.dataset.fn : null;
+    if (key === last) return;
+    last = key;
+    cxHover(card ? { n: card.dataset.id } : li ? { f: li.dataset.fn } : null);
+  });
+  stage.addEventListener("mouseleave", () => { last = null; cxHover(null); });
+  stage.addEventListener("click", (ev) => {
+    const more = ev.target.closest(".cx-all");
+    if (more) { CX.extra[more.dataset.dir] += CX_SIDE * 2; renderConnect(); return; }
+    const card = ev.target.closest(".cx-n");
+    if (card) cxGo(card.dataset.id);
+  });
+  stage.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" && ev.target.closest(".cx-n")) cxGo(ev.target.closest(".cx-n").dataset.id);
+  });
+  $("cx-head").addEventListener("click", (ev) => {
+    const act = ev.target.closest("[data-act]")?.dataset.act;
+    if (act === "map") openOnMap(CX.focus);
+    if (act === "code" && CX.codeFile) openIde(CX.codeFile);
+  });
+  $("cx-trail").addEventListener("click", (ev) => cxGo(ev.target.closest("button[data-id]")?.dataset.id));
+  $("cx-list").addEventListener("click", (ev) => cxGo(ev.target.closest(".cx-item")?.dataset.id));
+  $("cx-search").addEventListener("input", renderConnectList);
+  let rz;
+  window.addEventListener("resize", () => {
+    if (S.view !== "connect") return;
+    cancelAnimationFrame(rz); rz = requestAnimationFrame(() => drawWires(false));
+  });
+}
+
+/* ---------------- AI context brief ----------------
+   Markdown built by codebread/context.py at scan time: a compact map of the
+   project an assistant can read instead of every source file. */
+function renderAiBrief() {
+  const md = S.data.contextMd;
+  if (!md) return;  // e.g. an old saved graph served without the CLI
+  const k = (n) => n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
+  const src = S.data.nodes.reduce((sum, n) => sum + (n.source ? n.source.length : 0), 0);
+  // ponytail: ~4 chars/token is a rough English/code average, not a real tokenizer
+  $("ai-tokens").textContent = `about ${k(Math.round(md.length / 4))} tokens` +
+    (src > md.length ? `, instead of ${k(Math.round(src / 4))} to read all the source` : "");
+  $("ai-brief").classList.remove("hidden");
+  const flash = (btn, text) => {
+    const was = btn.textContent;
+    btn.textContent = text; btn.classList.add("done");
+    setTimeout(() => { btn.textContent = was; btn.classList.remove("done"); }, 1600);
+  };
+  $("ai-copy").onclick = () => { copyToClipboard(md); flash($("ai-copy"), "Copied"); };
+  $("ai-download").onclick = () => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([md], { type: "text/markdown;charset=utf-8" }));
+    a.download = (S.data.meta?.name || "codebase") + ".context.md";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    flash($("ai-download"), "Downloaded");
+  };
+  $("ai-preview").onclick = () => {
+    const pre = $("ai-md");
+    if (!pre.textContent) pre.textContent = md;
+    pre.classList.toggle("hidden");
+    $("ai-preview").textContent = pre.classList.contains("hidden") ? "Preview" : "Hide preview";
+  };
+}
+
 /* ---------------- view modes: chart / IDE ---------------- */
 function setView(view) {
   S.view = view;
   document.querySelectorAll("#view-mode button").forEach(b =>
     b.classList.toggle("active", b.dataset.view === view));
-  $("canvas-wrap").classList.toggle("hidden", view === "ide");
+  $("overview").classList.toggle("hidden", view !== "overview");
+  $("connect").classList.toggle("hidden", view !== "connect");
+  // overview's table and the explorer's list already list every file
+  $("sidebar").classList.toggle("hidden", view === "overview" || view === "connect");
+  $("canvas-wrap").classList.toggle("hidden", view !== "chart");
   $("ide").classList.toggle("hidden", view !== "ide");
   invalidateRectCache();  // canvas-wrap/svg geometry changes when toggled hidden
+  if (view === "overview") {
+    $("detail").classList.add("hidden");
+    renderOverview();
+    return;
+  }
+  if (view === "connect") {
+    $("detail").classList.add("hidden");
+    renderConnectList();
+    renderConnect();
+    return;
+  }
+  if (view === "chart") maybeShowOnboarding();
   if (view === "ide") {
     $("detail").classList.add("hidden");   // keep the editor clean
     if (!S.ideFile) {
@@ -1834,7 +2327,7 @@ function setView(view) {
       $("ide-lang").textContent = "";
       $("ide-outline-list").innerHTML = "";
       $("ide-code").innerHTML =
-        "<div class='ide-placeholder'>⌗<br>Pick a file in the Explorer" +
+        "<div class='ide-placeholder'>Pick a file in the list" +
         " on the left,<br>or click a node's “Open full file” button.</div>";
     }
   } else if (S.selected) {
@@ -1906,6 +2399,7 @@ function maybeShowOnboarding() {
   let seen = false;
   try { seen = localStorage.getItem("codebread_onboarded") === "1"; } catch (e) { /* no storage */ }
   if (!seen) $("onboarding").classList.remove("hidden");
+  setTimeout(() => $("hint").classList.add("faded"), 6000);
 }
 function dismissOnboarding() {
   $("onboarding").classList.add("hidden");
@@ -1916,6 +2410,22 @@ function dismissOnboarding() {
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g,
     c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+
+/* ---------------- start ----------------
+   Must run after every top-level const above is initialized: the static
+   --html export inlines CODEBREAD_DATA, so boot() runs synchronously and
+   would otherwise hit consts like BAND in their temporal dead zone. */
+if (window.CODEBREAD_DATA) {
+  boot(window.CODEBREAD_DATA);
+} else {
+  fetch("data.json").then(r => r.json()).then(boot)
+    .catch(err => {
+      document.body.innerHTML =
+        "<p style='padding:40px;font-family:monospace'>Failed to load " +
+        "data.json — " + err + "</p>";
+    });
 }
 
 })();

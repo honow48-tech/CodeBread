@@ -37,6 +37,11 @@ def main(argv=None) -> int:
                         help="also export the full graph as JSON")
     parser.add_argument("--html", metavar="OUT.html",
                         help="also export a self-contained static HTML file")
+    parser.add_argument("--md", nargs="?", const="", metavar="OUT.md",
+                        help="also write an AI context brief (Markdown) - a "
+                             "compact map of the project an assistant can read "
+                             "instead of every file. Default: CODEBREAD.md in "
+                             "the scanned folder")
     parser.add_argument("--no-open", action="store_true",
                         help="don't auto-open the browser")
     parser.add_argument("--no-serve", action="store_true",
@@ -89,6 +94,14 @@ def main(argv=None) -> int:
             print(f"[codebread] {graph['stats']['warnings']} warning(s) - "
                   f"they are shown as badges in the UI, nothing was hidden.")
 
+    from .context import export_markdown, to_markdown
+    graph["contextMd"] = to_markdown(graph)  # powers the report's "Copy for AI" / download
+    if args.md is not None:
+        default_dir = graph.get("meta", {}).get("root") or os.getcwd()
+        if not os.path.isdir(default_dir):  # --load of a graph scanned elsewhere
+            default_dir = os.getcwd()
+        p = export_markdown(graph, args.md or os.path.join(default_dir, "CODEBREAD.md"))
+        print(f"[codebread] AI context brief written to {p}")
     if args.json:
         p = export_json(graph, args.json)
         print(f"[codebread] Graph JSON written to {p}")

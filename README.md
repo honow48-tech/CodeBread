@@ -1,340 +1,258 @@
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/honow48-tech/CodeBread@main/assets/logo-wordmark.png" alt="CodeBread" width="360">
+  <img src="https://cdn.jsdelivr.net/gh/honow48-tech/CodeBread@main/assets/logo-wordmark.png" alt="CodeBread" width="320">
 </p>
 
 <p align="center">
-  <b>Slice open any codebase and see how it's actually wired together.</b><br>
-  An interactive, zero-dependency map of files → functions → API routes → database tables.
+  <b>See how any codebase is wired together.</b><br>
+  Files, functions, API routes and database tables, mapped in your browser.
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/codebread/"><img alt="PyPI" src="https://img.shields.io/pypi/v/codebread?color=2dd4bf&label=version"></a>
+  <a href="https://pypi.org/project/codebread/"><img alt="PyPI" src="https://img.shields.io/pypi/v/codebread?color=b0541c&label=pypi"></a>
   <a href="https://github.com/honow48-tech/CodeBread/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/honow48-tech/CodeBread/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="python" src="https://img.shields.io/badge/python-3.9%2B-0284c7">
-  <img alt="deps" src="https://img.shields.io/badge/required%20dependencies-none-2dd4bf">
-  <img alt="license" src="https://img.shields.io/badge/license-MIT-8b5cf6">
+  <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-5f5c55">
+  <img alt="No dependencies" src="https://img.shields.io/badge/dependencies-none-5f5c55">
+  <img alt="MIT" src="https://img.shields.io/badge/license-MIT-5f5c55">
 </p>
 
----
+<p align="center">
+  <img src="https://cdn.jsdelivr.net/gh/honow48-tech/CodeBread@main/assets/overview.gif" alt="The CodeBread overview: project totals, a language breakdown, and a file table that previews each file on hover" width="880">
+</p>
 
-## What is this
-
-CodeBread scans a project, extracts every function and class, maps how
-everything connects — **frontend → API → backend → database** — and renders
-it as an interactive node-graph in your browser. Click a file to slice it
-open into its functions; click a function to see everything it calls and
-everything that calls it, with the full chain lit up end to end.
-
-**The problem it solves:** dropping into a codebase you didn't write — or one
-an AI generated for you — and not knowing where anything is. Reading files
-one at a time doesn't build a mental model fast. CodeBread builds the model
-for you: it finds the routes, follows the `fetch()` calls to the handlers
-that answer them, follows the handlers to the tables they touch, and draws
-the whole path.
-
-## Why I built this
-
-This started as a personal tool. I kept generating projects with AI and then
-staring at the result with no idea how the pieces fit together — which file
-called which, where the API boundary actually was, what touched the
-database. I wanted something that would just *show* me, instead of me
-grepping through the tree file by file. CodeBread is that tool.
-
-It's a v1.0 — actively used by me on my own projects, and I'll keep adding
-to it. If it's useful to you too, that's a bonus. Issues and PRs are welcome.
-
-## What it's built with
-
-- **Backend/analysis engine:** pure Python **standard library** — no
-  required third-party packages, nothing to `pip install` beyond Python
-  itself. Parsing is stdlib `ast` for Python and structural regex for
-  everything else (see language table below).
-- **Frontend:** vanilla **JavaScript + SVG**, no framework, no build step,
-  no `npm install`. The entire UI is three files (`app.js`, `index.html`,
-  `style.css`).
-- **Serving:** a tiny local server built on `http.server` from the stdlib.
-
-That's it. Clone it, run it, nothing to compile.
-
----
-
-## Install
+## Quick start
 
 ```bash
 pip install codebread
+codebread --path ./my-project
 ```
 
-Optional extra (better `.gitignore` matching while scanning):
+A browser tab opens with the project already mapped. Everything runs on your
+machine: nothing is uploaded, and nothing in the scanned project is executed.
+
+## What you get
+
+### Overview
+
+Totals, a breakdown of the project by language, and every file in one table.
+Hover a row to preview what the file contains and what it talks to.
+
+### Connections
+
+Pick a file to see what uses it, what it uses, and which functions are
+linked. Click a neighbour to follow the trail; a breadcrumb takes you back.
+It only ever draws one file's neighbourhood, so it stays readable on a
+project with thousands of files.
+
+<p align="center">
+  <img src="https://cdn.jsdelivr.net/gh/honow48-tech/CodeBread@main/assets/connections.gif" alt="The Connections page: callers on the left, the selected file in the middle, the files it uses on the right, joined function to function" width="880">
+</p>
+
+### Map
+
+The whole project as a graph. Click a file to open it into its functions.
+Click a function to light up everything it calls and everything that calls
+it, all the way from a frontend `fetch()` to the database table.
+
+<p align="center">
+  <img src="https://cdn.jsdelivr.net/gh/honow48-tech/CodeBread@main/assets/map.png" alt="The Map view with one function selected and its call chain highlighted" width="880">
+</p>
+
+### Code
+
+Read any file with an outline and syntax highlighting, without leaving the page.
+
+<p align="center">
+  <img src="https://cdn.jsdelivr.net/gh/honow48-tech/CodeBread@main/assets/code.png" alt="The Code view: file tree, function outline and highlighted source" width="880">
+</p>
+
+### Context for AI assistants
+
+An AI assistant that reads every file to understand a project spends most of
+its tokens on code it never needed. CodeBread can write the map down instead:
 
 ```bash
-pip install codebread[full]        # adds pathspec
+codebread --path ./my-project --md
 ```
 
-Requires **Python 3.9+**. Nothing else.
+This creates `CODEBREAD.md` in the project: every route, table and function,
+and who calls whom. On CodeBread's own repo it's about **13k tokens instead
+of 83k** for the full source. The report has the same file one click away:
+**Copy for AI** or **Download .md**.
 
-Prefer running from source instead (e.g. to contribute)?
+## Commands
+
+| Flag | What it does |
+|---|---|
+| `--path, -p PATH` | Folder to scan (asks if you leave it out) |
+| `--md [FILE]` | Write the AI context file (default: `CODEBREAD.md` in the scanned folder) |
+| `--html FILE` | Export the report as one self-contained HTML file you can share |
+| `--json FILE` | Save the scan as JSON |
+| `--load FILE` | Open a saved JSON scan without scanning again |
+| `--diff OLD NEW` | Compare two saved scans and print what changed |
+| `--port 8137` | Port for the local server |
+| `--no-open` | Don't open the browser |
+| `--no-serve` | Scan and export only, no server |
+| `--version` | Print the version |
+
+Sharing a report with someone who doesn't have CodeBread:
+
+```bash
+codebread --path . --html report.html --no-serve
+```
+
+## Languages
+
+| Language | Functions | Routes | API calls | Database |
+|---|:---:|:---:|:---:|:---:|
+| Python | ✓ | Flask, FastAPI, Django | requests, httpx, aiohttp | SQLAlchemy, Django, peewee |
+| JavaScript / TypeScript | ✓ | Express, Fastify, Koa, NestJS | fetch, axios | Prisma, Mongoose, Sequelize, Knex, TypeORM |
+| Vue / Svelte | ✓ | same as JS | fetch, axios | same as JS |
+| PHP | ✓ | Laravel | – | raw SQL |
+| Java | ✓ | Spring | – | raw SQL |
+| C# | ✓ | ASP.NET | – | raw SQL |
+| Go | ✓ | Gin, net/http | – | raw SQL |
+| Ruby | ✓ | Rails, Sinatra | – | raw SQL |
+| SQL | – | – | – | `CREATE TABLE` schemas |
+
+Files in other languages still appear in the file list, marked as unsupported.
+
+<details>
+<summary><b>Full parser details</b></summary>
+
+<br>
+
+Python is parsed with the standard-library `ast` module, so it also gets
+parameter types, return types and docstrings. Every other language uses
+structural regex with brace matching and gets parameter names only.
+
+| Language | Parser | Functions | Classes | Routes | API calls | ORM models | Raw SQL | Call graph | Page links |
+|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Python | `ast` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | – |
+| JS / TS / JSX / TSX | regex | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | – |
+| Vue / Svelte | regex, `<script>` only | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | – |
+| Java | regex | ✓ | ✓ | ✓ | – | – | ✓ | ✓ | – |
+| C# | regex | ✓ | ✓ | ✓ | – | – | ✓ | ✓ | – |
+| Go | regex | ✓ | structs | ✓ | – | – | ✓ | ✓ | – |
+| PHP | regex | ✓ | ✓ | ✓ | – | – | ✓ | ✓ | ✓ |
+| Ruby | regex | ✓ | ✓ | ✓ | – | – | ✓ | ✓ | ✓ |
+| SQL | regex | – | – | – | – | tables + columns | ✓ | – | – |
+| Config (`.env`, json, yaml, toml, ini, xml) | key scan | – | – | – | – | – | – | – | – |
+
+Config files are only scanned for database connection settings, and
+credentials are always masked. Vue and Svelte templates (`@click`, `v-on`)
+aren't parsed, only the `<script>` block.
+
+</details>
+
+## How it works
+
+CodeBread reads your files and never runs them. It finds functions, routes
+and tables, then matches them up: a `fetch("/api/users")` in the frontend is
+linked to the handler that serves `GET /api/users`, and that handler to the
+`users` table it queries.
+
+<details>
+<summary><b>Layers, unused code and call cycles</b></summary>
+
+<br>
+
+- **Layers.** Each file is scored as frontend, backend, database or config
+  from its imports (React, Flask, Prisma…), its folder (`/client`,
+  `/server`, `/models`…) and what it contains (routes, models). Files that
+  don't clearly fit are left as *Unclassified* rather than guessed.
+- **Unused functions.** Functions nothing calls are flagged, except route
+  handlers and entry points like `main` and test functions. It's a starting
+  point for finding dead code, not proof: calls the parser can't see are
+  missed.
+- **Call cycles.** Functions that call each other in a loop are flagged on
+  the map and listed with the warnings.
+
+</details>
+
+<details>
+<summary><b>Decoding obfuscated code</b></summary>
+
+<br>
+
+Some code, often bought or "nulled" PHP scripts, hides its strings behind
+hex escapes, `chr()` arithmetic, base64 or junk statements. CodeBread decodes
+these **without running anything**: it only evaluates integer literals and
+basic operators inside a known decode call (`chr(...)`, `base64_decode(...)`),
+and refuses anything else. Decoded values are underlined in the code view
+(hover to see the original), and files with findings get a 🔓 badge.
+
+| Language | Hex | Octal | Unicode | Char codes | Base64 | Junk code |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| Python | ✓ | ✓ | ✓ | `chr()` | `b64decode` | – |
+| JS / TS / Vue / Svelte | ✓ | ✓ | ✓ | `fromCharCode` | `atob` | ✓ |
+| Java | – | ✓ | ✓ | `(char)` | `Base64` | ✓ |
+| C# | ✓ | – | ✓ | `(char)` | `FromBase64String` | ✓ |
+| Go | ✓ | ✓ | ✓ | `rune()` | `base64` | ✓ |
+| PHP | ✓ | ✓ | `\u{}` | `chr()` | `base64_decode` | ✓ |
+| Ruby | ✓ | ✓ | ✓ | `.chr` | `decode64` | – |
+
+Decoded text goes through the same credential masking as config files.
+Junk-code detection needs `;`-terminated statements, so it's off for Python
+and Ruby rather than guessing.
+
+</details>
+
+## Safety
+
+- Read-only. Nothing in the scanned project is ever executed.
+- Secrets found in `.env` and config files are masked before they reach the
+  report, the JSON export or the AI context file.
+- Runs on `localhost` only. No network calls, no telemetry.
+
+Found a security issue? Please follow [SECURITY.md](SECURITY.md) instead of
+opening a public issue.
+
+## Development
 
 ```bash
 git clone https://github.com/honow48-tech/CodeBread.git
 cd CodeBread
-pip install .                      # or: python codebread.py --path /path/to/project
-```
-
-## Use
-
-```bash
-codebread --path /path/to/project        # scan + open the UI in your browser
-codebread                                # prompts for the path
-```
-
-That's the whole quick start: point it at a folder, a browser tab opens with
-the map already scanned.
-
-### CLI reference
-
-| Flag | What it does |
-|---|---|
-| `--path, -p PATH` | root folder to scan (prompted if omitted) |
-| `--port 8137` | local server port (auto-picks a free one nearby if taken) |
-| `--json out.json` | export the full graph as JSON |
-| `--load out.json` | re-open a saved scan without re-scanning |
-| `--html out.html` | export a **self-contained static HTML** file you can share |
-| `--diff old.json new.json` | compare two saved scans and print what changed (files/functions/tables added, removed, changed) |
-| `--no-open` | don't auto-open the browser |
-| `--no-serve` | scan + export only, don't start the server |
-| `--version` | print the installed version |
-
----
-
-## What you get
-
-- **Explorer sidebar** — the full folder tree, expandable like a file
-  explorer; every file tagged with its layer color.
-- **Orbit layout (default)** — files float freely in space, spread apart so
-  connections stay untangled. Expand a file and its functions arrange in a
-  clean ring around it, spoked by straight lines back to the center. A
-  **Free** force-directed layout is also available (toggle bottom-right).
-- **Focus mode** — clears the canvas so you inspect one file at a time:
-  pick a file in the Explorer and only it, its functions, and its direct
-  connections show up. Toggle it off to go back to the full overview.
-- **Progressive reveal (OSINT-style)** — click a file to slice it open into
-  its numbered functions; click a function to draw in what it calls and
-  what calls it. Dense codebases stay readable.
-- **Full-chain highlight** — select any node and its complete end-to-end
-  chain lights up (frontend `fetch()` → `GET /api/users` route → handler →
-  `users` table), everything unrelated dims.
-- **Right-click for actions** — a context menu on every node, edge, and
-  the empty canvas: reveal connections, focus a file, open it in the IDE
-  view, jump to a route's source/target, copy a name or path, and more.
-- **Insights panel** — flags orphaned functions (no detected callers) and
-  circular call chains, both clickable to jump straight to them.
-- **Diff mode** — compare two saved scans (`--diff old.json new.json`) to
-  see exactly what changed between them.
-- **Minimap + breadcrumb** — a live minimap of the whole graph with a
-  draggable viewport, and a breadcrumb showing the real folder path of
-  whatever's currently selected.
-- **Keyboard navigation** — `←`/`→` step through a selected node's
-  neighbors, `↑`/`↓` walk back/forward through your selection history,
-  `/` to search.
-- **Detail panel** — params, return type, auto-generated description
-  ("Function 3 · handles GET /api/users · queries users"), every caller and
-  callee, clickable.
-- **View the actual code** — every function has an expandable
-  **▸ View code** section: syntax-highlighted source with real line
-  numbers. A full **IDE view** (⌗) opens any file whole, with an outline
-  sidebar.
-- **Search** (`/`) and **layer filter** (Frontend / Backend / Database /
-  Config) in the header.
-- **Warnings, never silence** — unreadable files, unsupported languages and
-  permission problems show up as ⚠ badges and in the warnings list, never
-  hidden. Secrets found in config files are always masked.
-- **De-obfuscation, inline** — hex/octal escapes, `chr()`-style
-  character-code math, base64 blobs, and dead "chaff" statements get
-  statically decoded and highlighted right in the code viewer — hover a
-  🔓-underlined span to see what it originally said. See
-  [De-obfuscation](#de-obfuscation) below.
-
-## Language support
-
-Parser used per language, then exactly what gets extracted — checked feature
-by feature against the actual parser code, not a marketing table:
-
-| Language | Parser | Functions / methods | Classes / structs | Backend routes | Outgoing API calls | ORM / DB models | Raw SQL | Call graph | Page-nav links |
-|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| Python | stdlib `ast` (precise) | ✅ | ✅ | ✅ Flask / FastAPI / Django | ✅ `requests` / `httpx` / `aiohttp` / `urllib` | ✅ SQLAlchemy / Django / peewee / tortoise | ✅ | ✅ | – |
-| JavaScript / TypeScript / JSX / TSX | regex + brace matching | ✅ | ✅ | ✅ Express / Fastify / Koa / NestJS | ✅ `fetch` / `axios` | ✅ Mongoose / Prisma / Sequelize / Knex / TypeORM | ✅ | ✅ | – |
-| Vue / Svelte | regex, `<script>` block only¹ | ✅ | ✅ | ✅ (same as JS) | ✅ (same as JS) | ✅ (same as JS) | ✅ | ✅ | – |
-| Java | regex | ✅ | ✅ | ✅ Spring `@*Mapping` | – | – | ✅ | ✅ | – |
-| C# | regex | ✅ | ✅ | ✅ ASP.NET `[Http*]` | – | – | ✅ | ✅ | – |
-| Go | regex | ✅ | ✅ (structs) | ✅ Gin / net-http style | – | – | ✅ | ✅ | – |
-| PHP | regex | ✅ | ✅ | ✅ Laravel `Route::` | – | – | ✅ | ✅ | ✅ |
-| Ruby | regex | ✅ | ✅ | ✅ Rails / Sinatra | – | – | ✅ | ✅ | ✅ |
-| SQL (`.sql` files) | regex | – | – | – | – | ✅ `CREATE TABLE` schemas + columns | ✅ | – | – |
-| Config (`.env`, json/yaml/toml/ini/xml…)² | key scan | – | – | – | – | – | – | – | – |
-| Anything else (Rust, Kotlin, Swift, C/C++, Scala, Elixir, Erlang, Lua, R, Perl, Dart, Zig…) | – | – | – | – | – | – | – | – | – |
-
-Unsupported languages still show up in the Explorer tree with an
-"⚠ Unsupported — parsing skipped" badge — never silently dropped — they just
-have no functions/edges to draw.
-
-¹ Vue/Svelte only parse the `<script>` block — template-only bindings
-(`@click`, `v-on`, Svelte reactive markup) aren't extracted.
-² Config-format files get a DB-connection-settings scan instead of code
-extraction — **credentials always masked**, see [export.py](codebread/export.py)-embedded
-source too. Files like `settings.py` or `config.js` are parsed as their real
-language (full extraction above), not this bucket — only non-code formats
-(json/yaml/toml/ini/`.env`/xml/properties) land here.
-
-Only Python's `ast`-based parser captures real parameter type annotations,
-return types, and docstrings — every regex-based parser above extracts
-parameter *names* only.
-
-## De-obfuscation
-
-Some codebases — commercial/nulled PHP scripts especially — ship with
-constant-literal obfuscation: hex/octal escape sequences, `chr()`-style
-character-code arithmetic, base64-encoded string constants, and dead
-"chaff" statements built and thrown away purely to make the file harder to
-read. CodeBread finds and decodes these **statically** and highlights the
-decoded value inline in the code viewer (dashed underline — hover to see
-the original), plus a 🔓 badge on any file with findings.
-
-**The one rule that matters: nothing here is ever executed.** Every
-decoder in [`codebread/deobfuscate.py`](codebread/deobfuscate.py) only
-resolves *constant* expressions — integer literals combined with
-`+ - * / % << >> | & ^`, inside a recognized decode call (`chr(...)`,
-`base64_decode(...)`, ...). A restricted AST walker
-(`safe_eval_int_expr`) is the enforcement point: if an expression touches
-a variable, a function call, a float, or anything else that isn't a bare
-integer literal or one of those operators, it's refused and left alone —
-never guessed at, never evaluated by actually running the target
-language. That's what makes it safe to point at code you don't trust yet,
-which is the same posture as the rest of CodeBread (read-only static
-analysis, nothing scanned is ever run).
-
-| Language | Hex `\xHH` | Octal `\NNN` | Unicode `\uHHHH` / `\u{HHHH}` | Char-code math | Base64 literals | Dead "chaff" statements |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| Python | ✅ | ✅ | ✅ `\uHHHH` | ✅ `chr(...)` | ✅ `base64.b64decode(...)` | –³ |
-| JavaScript / TypeScript / Vue / Svelte | ✅ | ✅ | ✅ both forms | ✅ `String.fromCharCode` / `fromCodePoint` | ✅ `atob(...)` | ✅ (`+` concat) |
-| Java | – | ✅ | ✅ `\uHHHH` | ✅ `(char)(...)` cast | ✅ `Base64.getDecoder().decode(...)` | ✅ (`+` concat) |
-| C# | ✅ | – | ✅ `\uHHHH` | ✅ `(char)(...)` cast | ✅ `Convert.FromBase64String(...)` | ✅ (`+` concat) |
-| Go | ✅ | ✅ | ✅ `\uHHHH` | ✅ `string(rune(...))` | ✅ `base64.StdEncoding.DecodeString(...)` | ✅ (`+` concat) |
-| PHP | ✅ | ✅ | ✅ `\u{HHHH}` only | ✅ `chr(...)` | ✅ `base64_decode(...)` | ✅ (`.` concat) |
-| Ruby | ✅ | ✅ | ✅ both forms | ✅ `<int>.chr` | ✅ `Base64.decode64(...)` | –³ |
-
-Decoded base64 output is re-checked against the same credential-masking
-rule used on config files (`URL_CREDS_RE`) — revealing a hidden literal
-can't be used to route around the "credentials always masked" guarantee
-elsewhere in the tool.
-
-³ Chaff detection needs a reliable statement boundary to prove "this
-literal chain is the *entire* statement, nothing else on either side" —
-the `;`-terminated languages above have one. Python and Ruby don't require
-a terminator, so v1 intentionally reports nothing there rather than guess
-and risk false positives; the escape/char-code/base64 decoders still work
-fully on both.
-
-## How it classifies layers
-
-Score-based heuristics combining framework import signatures
-(React/Vue → frontend, Flask/Express → backend, SQLAlchemy/Prisma →
-database), folder conventions (`/client`, `/server`, `/models`…), file
-extensions, and extracted facts (defines routes → backend, defines models →
-database). Ambiguous files are marked **Unclassified** instead of guessed.
-
-## How orphan + cycle detection works
-
-- **Orphaned functions**: any function/method with zero detected incoming
-  calls, that isn't a route handler and isn't a common framework entry
-  point (`__init__`, `main`, `setUp`, test functions, …). Flagged with a
-  badge on the node and listed in the Insights panel — a good starting
-  point for finding dead code (heuristic, not exhaustive: it can miss calls
-  the static parser doesn't recognize).
-- **Circular call chains**: an iterative cycle-detection pass over the
-  call graph (no recursion, so it's safe on large codebases) flags
-  functions that call each other in a loop, both on the node (↻ badge) and
-  as a listed chain in the Insights panel.
-
-## Project layout
-
-```
-codebread.py              ← runnable entry point (no install needed)
-codebread/
-  cli.py                  ← argparse CLI
-  scanner.py              ← .gitignore-aware recursive walker
-  languages.py             ← language detection / binary sniffing
-  parsers/
-    python_parser.py      ← ast-based Python extractor
-    javascript_parser.py  ← JS/TS/Vue/Svelte extractor
-    generic_parser.py     ← Java/C#/Go/PHP/Ruby + SQL + config
-  classifier.py           ← frontend/backend/database/config scoring
-  connections.py           ← call graph + API↔route + fn↔table matching +
-                               orphan/cycle detection
-  analyzer.py              ← pipeline orchestration
-  diff.py                  ← compares two saved scans
-  server.py                ← stdlib local web server
-  export.py                ← JSON + single-file HTML export
-  web/                     ← the UI (vanilla JS + SVG, zero dependencies)
-tests/                     ← pytest suite + per-language fixture corpus
-assets/                    ← logo (.svg source + .png for the README —
-                               GitHub blocks same-repo SVG <img> embeds)
-```
-
----
-
-## Testing
-
-```bash
 pip install -e ".[full,test]"
 pytest -q
 ```
 
-The suite covers every parser (a small fixture file per language under
-`tests/fixtures/`), the connection/graph builder (call resolution,
-API↔route matching, DB edges, orphan + cycle detection), the scanner
-(`.gitignore` handling, language detection), the local server (including a
-regression test for the path-traversal fix), and an end-to-end analyze
-pass — including a regression test that secrets in scanned `.env` files
-never leak into an exported graph. CI (`.github/workflows/ci.yml`) runs it
-on every push/PR across the minimum and latest supported Python versions,
-and the PyPI release workflow won't publish if it fails.
+No build step: the analyzer is Python's standard library, and the UI is three
+plain files in [`codebread/web/`](codebread/web) (HTML, CSS and vanilla
+JavaScript). `pathspec` in the `full` extra is optional and only improves
+`.gitignore` matching.
 
-## Roadmap
+<details>
+<summary><b>Project layout</b></summary>
 
-Already done as of v1.0:
+```
+codebread.py             run without installing: python codebread.py --path .
+codebread/
+  cli.py                 command-line flags
+  scanner.py             walks the folder, respects .gitignore
+  languages.py           language detection
+  parsers/               Python (ast), JS/TS/Vue, and everything else
+  classifier.py          frontend / backend / database / config scoring
+  connections.py         call graph, API-to-route and function-to-table links
+  deobfuscate.py         static decoding of obfuscated literals
+  analyzer.py            runs the pipeline
+  context.py             the AI context Markdown
+  diff.py                compares two saved scans
+  export.py              JSON and single-file HTML export
+  server.py              local web server
+  web/                   the UI
+tests/                   pytest suite with a small fixture project per language
+```
 
-- [x] Orphaned-function and circular-dependency detection
-- [x] Diff mode between two scans
-- [x] Focus mode, orbit layout, right-click actions, minimap, breadcrumb
-- [x] Automated test suite + CI
-
-Not yet, but planned:
-
-- [ ] "Explain this function" — a plain-language AI summary button
-- [ ] More precise multi-language parsing (currently structural regex for
-      everything but Python)
-
-Have an idea? Open an issue.
+</details>
 
 ## Contributing
 
-This is a young, actively-changing personal project, so keep that in mind —
-but contributions are genuinely welcome:
-
-- **Bugs / ideas** → open an issue with a repro or a description.
-- **Pull requests** → welcome, especially for language parser improvements
-  or UI polish. Keep the zero-dependency philosophy: the core tool should
-  keep running on nothing but the Python standard library, and the UI
-  should keep running on vanilla JS with no build step.
-- Run `pytest -q` before opening a PR (see [Testing](#testing) above); add
-  a fixture + test case under `tests/` for new parser behavior where you
-  can.
-
-Security issue instead? See [SECURITY.md](SECURITY.md) rather than a
-public issue.
+Issues and pull requests are welcome, especially parser improvements for more
+frameworks. Two rules keep the project easy to run: the core stays on the
+Python standard library, and the UI stays plain JavaScript with no build
+step. Please run `pytest -q` and add a fixture under `tests/` for new parser
+behaviour.
 
 ## License
 
-[MIT](LICENSE) — use it, modify it, ship it, sell it. No attribution
-required beyond keeping the license file. See [LICENSE](LICENSE) for the
-full text.
+[MIT](LICENSE)
