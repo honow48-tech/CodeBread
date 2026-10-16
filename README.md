@@ -8,6 +8,11 @@
 </p>
 
 <p align="center">
+  An interactive codebase visualizer: call graph, dependency map and API-to-database tracing<br>
+  for Python, JavaScript, TypeScript, PHP, Java, Go, C# and Ruby.
+</p>
+
+<p align="center">
   <a href="https://pypi.org/project/codebread/"><img alt="PyPI" src="https://img.shields.io/pypi/v/codebread?color=b0541c&label=pypi"></a>
   <a href="https://github.com/honow48-tech/CodeBread/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/honow48-tech/CodeBread/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-5f5c55">
