@@ -26,6 +26,16 @@ COMMON_NAMES = {  # never resolve these across files by name alone
 ENTRY_NAMES = {
     "main", "__init__", "__main__", "__new__", "__call__", "setup", "setUp",
     "tearDown", "run", "handler", "index", "render", "constructor",
+    # PHP magic methods
+    "__construct", "__destruct", "__invoke", "__get", "__set", "__toString",
+    # Laravel: migrations, providers, jobs, requests, factories, policies
+    "up", "down", "boot", "booted", "register", "handle", "schedule", "rules",
+    "authorize", "definition", "casts", "toArray", "via", "toMail", "broadcastOn",
+    "store", "show", "create", "edit", "update", "destroy",
+    # Filament / Livewire hooks
+    "form", "table", "configure", "panel", "mount", "getPages", "getRelations",
+    "getHeaderActions", "getStats", "getData", "getType", "getEloquentQuery",
+    "getGloballySearchableAttributes", "canAccessPanel",
 }
 
 
@@ -80,6 +90,10 @@ def _resolve_file_ref(base_file: str, target: str, file_set) -> Optional[str]:
         posixpath.normpath(target.lstrip("/")),
         target.lstrip("./"),
     ]
+    # PSR-4 namespaces: `use App\Support\MjIcon` lives in app/Support/MjIcon.php
+    head, _, rest = target.partition("/")
+    if rest and head[:1].isupper():
+        candidates.append(head.lower() + "/" + rest)
     # python dotted modules: models / app.utils -> models.py / app/utils.py
     if "/" not in target and "." not in posixpath.basename(target):
         candidates.append(target.replace(".", "/"))
@@ -233,8 +247,9 @@ def build_graph(files: List[FileInfo], tree: Dict,
             if t is not None:  # enrich a placeholder with real definition
                 for n in nodes:
                     if n["id"] == nid:
-                        if t.fields:
-                            n["fields"] = t.fields
+                        if t.fields:  # merge: migrations add columns over time
+                            n["fields"] = n.get("fields", []) + [
+                                c for c in t.fields if c not in n.get("fields", [])]
                         if t.model:
                             n["model"] = t.model
                         if t.source:
@@ -252,11 +267,17 @@ def build_graph(files: List[FileInfo], tree: Dict,
         })
         return nid
 
+    # real definitions first, so a model's guessed name can snap to one
+    defined = {t.name.lower() for f in files for t in f.tables if not t.aliases}
     for f in files:
-        for t in f.tables:
+        for t in sorted(f.tables, key=lambda t: bool(t.aliases)):
+            if t.aliases:
+                t.name = next((a for a in t.aliases if a.lower() in defined), t.name)
             nid = table_node(t.name, t)
             if t.model:
                 model_to_table[t.model.lower()] = nid
+                if t.aliases:  # Eloquent model file -> its table
+                    add_edge(f.path, nid, "db", f"{t.model} model → {t.name}")
 
     # ---- call edges --------------------------------------------------
     for f in files:
@@ -288,12 +309,14 @@ def build_graph(files: List[FileInfo], tree: Dict,
 
     # ---- file-level connections ---------------------------------------
     file_set = {f.path for f in files}
+    called_from_page: set = set()  # own functions a page calls (onclick="f()")
     for f in files:
         fname = f.path.split("/")[-1]
         local = {fn.name: fn_nodes[(f.path, fn.name)] for fn in f.functions}
         # top-level calls: page/script code calling into functions
         for callee in f.calls:
             if callee in local:
+                called_from_page.add(local[callee])
                 continue  # a file already implicitly contains its own fns
             candidates = name_index.get(callee, [])
             if not candidates or callee in COMMON_NAMES:
@@ -332,13 +355,13 @@ def build_graph(files: List[FileInfo], tree: Dict,
             target = handler_id or f.path
             route_index.append((r.method, _norm_path(r.path), target,
                                 f"{r.method} {r.path}"))
-            if handler_id:
-                # mark handler node with its route
-                for n in nodes:
-                    if n["id"] == handler_id:
-                        n.setdefault("routes", []).append(
-                            {"method": r.method, "path": r.path})
-                        break
+            # mark the handler with its route; closure routes (Laravel
+            # `Route::get('/', function () {...})`) land on the file itself
+            for n in nodes:
+                if n["id"] == target:
+                    n.setdefault("routes", []).append(
+                        {"method": r.method, "path": r.path})
+                    break
 
     # ---- api edges (frontend call -> backend route) -------------------
     def match_route(method: str, url: str) -> Optional[Tuple[str, str]]:
@@ -374,6 +397,8 @@ def build_graph(files: List[FileInfo], tree: Dict,
                 tid = model_to_table.get(ref.table.lower()) \
                     or table_ids.get(ref.table.lower())
                 if tid is None:
+                    if ref.via == "orm-guess":
+                        continue  # `Foo::where()` where Foo isn't a known model
                     # unknown table: create it only for confident refs
                     if ref.via == "sql" or ref.table.lower() in table_ids:
                         tid = table_node(ref.table)
@@ -389,6 +414,12 @@ def build_graph(files: List[FileInfo], tree: Dict,
 
     # ---- orphans + circular dependencies --------------------------------
     cycles = _mark_orphans_and_cycles(nodes, edges)
+    # Eloquent model methods (relations, accessors) are reached through magic
+    # properties like $booking->user, which static analysis can't see
+    model_files = {f.path for f in files for t in f.tables if t.model and t.aliases}
+    for n in nodes:
+        if n.get("orphan") and (n.get("file") in model_files or n["id"] in called_from_page):
+            del n["orphan"]
 
     # ---- stats ---------------------------------------------------------
     n_fns = sum(1 for n in nodes if n["kind"] in ("function", "method"))

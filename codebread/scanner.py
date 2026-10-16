@@ -85,32 +85,45 @@ class _SimpleGitignore:
 
 
 class GitignoreStack:
-    """Loads the root .gitignore (via pathspec when available)."""
+    """Every .gitignore in the tree, each scoped to its own folder — like git.
+
+    Frameworks lean on nested ones (Laravel's storage/framework/views/.gitignore
+    is just `*` + `!.gitignore`), so reading only the root file lets compiled
+    caches flood the scan. Uses pathspec when available.
+    """
 
     def __init__(self, root: str):
         self.root = root
-        self._spec = None
-        self._simple: Optional[_SimpleGitignore] = None
-        gi = os.path.join(root, ".gitignore")
-        if os.path.isfile(gi):
-            try:
-                with open(gi, "r", encoding="utf-8", errors="replace") as f:
-                    lines = f.readlines()
-            except OSError:
-                lines = []
-            try:
-                import pathspec  # type: ignore
-                self._spec = pathspec.PathSpec.from_lines("gitwildmatch", lines)
-            except ImportError:
-                self._simple = _SimpleGitignore(lines)
+        self._rules: List[Tuple[str, object]] = []  # (folder rel to root, matcher)
+        self.load_dir(root, "")
+
+    def load_dir(self, abs_dir: str, rel_dir: str) -> None:
+        gi = os.path.join(abs_dir, ".gitignore")
+        if not os.path.isfile(gi):
+            return
+        try:
+            with open(gi, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+        except OSError:
+            return
+        try:
+            import pathspec  # type: ignore
+            matcher: object = pathspec.GitIgnoreSpec.from_lines(lines)
+        except ImportError:
+            matcher = _SimpleGitignore(lines)
+        self._rules.append((rel_dir.replace(os.sep, "/").strip("/"), matcher))
 
     def ignored(self, rel_path: str, is_dir: bool) -> bool:
         rel = rel_path.replace(os.sep, "/")
-        if self._spec is not None:
-            probe = rel + "/" if is_dir else rel
-            return self._spec.match_file(probe)
-        if self._simple is not None:
-            return self._simple.matches(rel, is_dir)
+        for base, m in self._rules:
+            if base and not rel.startswith(base + "/"):
+                continue
+            sub = rel[len(base) + 1:] if base else rel
+            if isinstance(m, _SimpleGitignore):
+                if m.matches(sub, is_dir):
+                    return True
+            elif m.match_file(sub + "/" if is_dir else sub):
+                return True
         return False
 
 
@@ -157,6 +170,7 @@ def scan(root: str, max_file_kb: int = 1024) -> Dict:
                     continue
                 if gitignore.ignored(rel, True):
                     continue
+                gitignore.load_dir(entry.path, rel)
                 child = walk_dir(entry.path, rel)
                 # keep dirs that contain anything (incl. warning stubs)
                 if child["children"] or child.get("warning"):

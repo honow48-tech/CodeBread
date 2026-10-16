@@ -15,6 +15,7 @@ KEYWORDS = {
     "try", "throw", "case", "using", "lock", "foreach", "select", "func",
     "defer", "go", "range", "elsif", "unless", "until", "when", "match",
     "sizeof", "typeof", "yield", "puts", "print", "println", "printf",
+    "function", "fn", "use",  # PHP closures: `function () use ($x)`, `fn () =>`
 }
 
 SQL_RE = re.compile(
@@ -22,6 +23,100 @@ SQL_RE = re.compile(
     r"\b(?:FROM|INTO|UPDATE|JOIN)\s+[`\"\[]?([A-Za-z_][A-Za-z0-9_.]*)",
     re.IGNORECASE)
 CALL_RE = re.compile(r"(?<![\w$.:])([A-Za-z_][\w]*)\s*\(")
+
+# ---- PHP / Laravel ------------------------------------------------------
+# CALL_RE skips `X::f(` and would read `$obj->label(` as a call to any
+# function named label. In PHP only these member calls are trustworthy:
+PHP_MEMBER_CALL_RE = re.compile(
+    r"(?:\$this->|\b(?:self|static|parent)::|\b[A-Z]\w*::)(\w+)\s*\(")
+PHP_USE_RE = re.compile(r"^\s*use\s+([A-Za-z_][\w\\]*\\\w+)\s*(?:as\s+\w+\s*)?;",
+                        re.MULTILINE)
+PHP_VIEW_RE = re.compile(r"\bview\s*\(\s*['\"]([\w.\-/]+)['\"]")
+# Eloquent: Booking::where(...), Booking::create(...), DB::table('bookings')
+PHP_ORM_RE = re.compile(
+    r"\b([A-Z]\w*)::(query|where\w*|find\w*|first\w*|create|insert\w*|"
+    r"update\w*|upsert|destroy|all|with|latest|oldest|orderBy|count|sum|"
+    r"pluck|paginate|select)\s*\(")
+PHP_DB_TABLE_RE = re.compile(r"\bDB::table\(\s*['\"](\w+)['\"]")
+ORM_OP = {"create": "insert", "insert": "insert", "upsert": "insert",
+          "update": "update", "destroy": "delete"}
+NOT_MODELS = {"DB", "Route", "Schema", "Carbon", "Str", "Arr", "Auth", "Cache",
+              "Log", "Http", "Storage", "Validator", "Hash", "Session", "Config",
+              "Gate", "Mail", "Event", "Queue", "App", "Request", "Response"}
+SCHEMA_RE = re.compile(r"Schema::(create|table)\s*\(\s*['\"](\w+)['\"]")
+BLUEPRINT_COL_RE = re.compile(r"\$\w+->(\w+)\s*\(\s*(?:['\"](\w+)['\"])?")
+BLUEPRINT_IMPLIED = {"id": ["id"], "timestamps": ["created_at", "updated_at"],
+                     "timestampsTz": ["created_at", "updated_at"],
+                     "softDeletes": ["deleted_at"], "rememberToken": ["remember_token"]}
+BLUEPRINT_SKIP = {"index", "unique", "primary", "foreign", "dropColumn",
+                  "dropForeign", "dropIndex", "renameColumn", "fullText",
+                  "spatialIndex", "comment", "engine", "charset", "collation"}
+ELOQUENT_RE = re.compile(
+    r"^\s*(?:final\s+)?class\s+(\w+)\s+extends\s+(?:Model|Authenticatable|Pivot)\b",
+    re.MULTILINE)
+PHP_TABLE_PROP_RE = re.compile(r"\$table\s*=\s*['\"](\w+)['\"]")
+
+
+def _snake(name: str) -> str:
+    return re.sub(r"(?<=[a-z0-9])([A-Z])", r"_\1", name).lower()
+
+
+def _plural_candidates(snake: str) -> List[str]:
+    """Laravel's table guess for a model, best first (Booking -> bookings)."""
+    if snake.endswith("y") and snake[-2:-1] not in "aeiou":
+        first = snake[:-1] + "ies"
+    elif snake.endswith(("s", "x", "z", "ch", "sh")):
+        first = snake + "es"
+    else:
+        first = snake + "s"
+    return [first, snake]  # bare name covers uncountables like `equipment`
+
+
+def _php_member_calls(body: str) -> List[str]:
+    return [m.group(1) for m in PHP_MEMBER_CALL_RE.finditer(body)]
+
+
+def _php_db_refs(body: str, line: int) -> List[DbRef]:
+    refs = [DbRef(table=m.group(1), op="query", via="sql", line=line)
+            for m in PHP_DB_TABLE_RE.finditer(body)]
+    for m in PHP_ORM_RE.finditer(body):
+        if m.group(1) in NOT_MODELS:
+            continue
+        op = next((v for k, v in ORM_OP.items() if m.group(2).startswith(k)), "select")
+        refs.append(DbRef(table=m.group(1), op=op, via="orm-guess", line=line))
+    return refs
+
+
+def parse_laravel(info: FileInfo, text: str) -> None:
+    """File-level Laravel facts: `use` imports, view() links, migrations,
+    Eloquent models. Cheap regex passes; nothing matches in non-Laravel PHP."""
+    info.imports.extend(m.group(1).replace("\\", "/") for m in PHP_USE_RE.finditer(text))
+    for m in PHP_VIEW_RE.finditer(text):
+        info.links.append("resources/views/" + m.group(1).replace(".", "/") + ".blade.php")
+
+    for m in SCHEMA_RE.finditer(text):
+        end = _brace_end_line(text, m.end())
+        block = "\n".join(text.split("\n")[_line_of(text, m.start()) - 1:end or None])
+        cols: List[str] = []
+        for c in BLUEPRINT_COL_RE.finditer(block):
+            method, col = c.group(1), c.group(2)
+            if method in BLUEPRINT_SKIP:
+                continue
+            for name in BLUEPRINT_IMPLIED.get(method, [col] if col else []):
+                if name not in cols:
+                    cols.append(name)
+        # Schema::table() only alters: it adds columns but doesn't define the table
+        info.tables.append(TableInfo(name=m.group(2), fields=cols[:40],
+                                     line=_line_of(text, m.start()),
+                                     source=info.path if m.group(1) == "create" else ""))
+
+    for m in ELOQUENT_RE.finditer(text):
+        cls = m.group(1)
+        explicit = PHP_TABLE_PROP_RE.search(text)
+        cands = [explicit.group(1)] if explicit else _plural_candidates(_snake(cls))
+        # no source: the migration defines the table; the model links to it by edge
+        info.tables.append(TableInfo(name=cands[0], model=cls, aliases=cands,
+                                     line=_line_of(text, m.start())))
 
 LANG_PATTERNS: Dict[str, Dict[str, Pattern]] = {
     "go": {
@@ -173,8 +268,16 @@ def parse_generic(info: FileInfo, text: str, language: str) -> None:
             cname = cm.group(1)
             if cname in KEYWORDS or cname == name or cname in seen:
                 continue
+            if language == "php" and body[max(0, cm.start() - 2):cm.start()] == "->":
+                continue  # $obj->method(): unknown receiver, see PHP_MEMBER_CALL_RE
             seen.add(cname)
             fn.calls.append(cname)
+        if language == "php":
+            for cname in _php_member_calls(body):
+                if cname not in seen and cname != name and cname not in KEYWORDS:
+                    seen.add(cname)
+                    fn.calls.append(cname)
+            fn.db_refs.extend(_php_db_refs(body, start_line))
         fn.calls = fn.calls[:40]
         fn.description = describe(fn, body[:400])
         info.functions.append(fn)
@@ -196,6 +299,10 @@ def parse_generic(info: FileInfo, text: str, language: str) -> None:
 
     if language in ("php", "ruby"):
         extract_toplevel(info, text)
+    if language == "php":
+        parse_laravel(info, text)
+        info.imports = sorted(set(info.imports))[:60]
+        info.links = list(dict.fromkeys(info.links))[:30]
 
 
 PAGE_LINK_RE = re.compile(
@@ -218,14 +325,23 @@ def extract_toplevel(info: FileInfo, text: str) -> None:
     def outside(line: int) -> bool:
         return not any(s <= line <= e for s, e in fn_ranges)
 
+    is_php = info.language == "php"
     seen = set()
     for m in CALL_RE.finditer(text):
         name = m.group(1)
         if name in TOPLEVEL_NOISE or name in seen:
             continue
+        if is_php and text[max(0, m.start() - 2):m.start()] == "->":
+            continue
         if outside(_line_of(text, m.start())):
             seen.add(name)
             info.calls.append(name)
+    if is_php:  # routes/web.php closures call App\X::y() at top level
+        for m in PHP_MEMBER_CALL_RE.finditer(text):
+            name = m.group(1)
+            if name not in seen and name not in TOPLEVEL_NOISE and outside(_line_of(text, m.start())):
+                seen.add(name)
+                info.calls.append(name)
     info.calls = info.calls[:40]
 
     seen_l = set()

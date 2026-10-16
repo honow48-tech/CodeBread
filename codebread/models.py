@@ -58,6 +58,9 @@ class TableInfo:
     fields: List[str] = field(default_factory=list)
     line: int = 0
     source: str = ""     # file that defines it
+    # candidate names when `name` is only a guess (e.g. Laravel's pluralised
+    # Eloquent table names); resolved against real tables in build_graph
+    aliases: List[str] = field(default_factory=list)
 
 
 @dataclass

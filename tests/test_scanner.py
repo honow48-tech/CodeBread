@@ -82,3 +82,15 @@ def test_looks_binary_false_for_text(tmp_path):
     p = tmp_path / "note.unknownext"
     p.write_text("just plain text", encoding="utf-8")
     assert looks_binary(str(p)) is False
+
+
+def test_scan_respects_nested_gitignore(tmp_path):
+    # Laravel ships storage/framework/views/.gitignore = "*\n!.gitignore":
+    # compiled Blade caches must not leak into the scan
+    root = str(tmp_path)
+    _write(root, "app/keep.php", "<?php function f() {}\n")
+    _write(root, "storage/framework/views/.gitignore", "*\n!.gitignore\n")
+    _write(root, "storage/framework/views/0a1b2c.php", "<?php echo 1;\n")
+    paths = {f["path"] for f in scan(root)["files"]}
+    assert "app/keep.php" in paths
+    assert "storage/framework/views/0a1b2c.php" not in paths

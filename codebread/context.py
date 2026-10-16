@@ -8,6 +8,7 @@ it once, then opens only the files that matter for the task.
 from __future__ import annotations
 
 import os
+import re
 from collections import Counter, defaultdict
 from typing import Dict, Iterable
 
@@ -22,6 +23,20 @@ def _short(items: Iterable[str], cap: int = LIST_CAP) -> str:
     items = list(dict.fromkeys(items))  # dedupe, keep order
     more = f" (+{len(items) - cap} more)" if len(items) > cap else ""
     return ", ".join(items[:cap]) + more
+
+
+def _human(name: str) -> str:
+    return " ".join(re.sub(r"(?<=[a-z0-9])(?=[A-Z])|_+", " ", name).split()).lower()
+
+
+def _desc(fn: Dict) -> str:
+    """Drop auto-descriptions that only repeat the name ("Get Header Actions."),
+    keep what they add after it ("handles POST /users; queries users")."""
+    d = (fn.get("description") or "").strip()
+    head, _, tail = d.partition(" — ")
+    if head.rstrip(".").lower() == _human(fn["label"]):
+        return tail.rstrip(".")
+    return d
 
 
 def to_markdown(graph: Dict) -> str:
@@ -76,11 +91,16 @@ def to_markdown(graph: Dict) -> str:
           ""]
 
     # ---- entry points
-    routes = sorted(((r["method"], r["path"], fn) for fl in fns.values() for fn in fl
-                     for r in fn.get("routes") or []), key=lambda x: (x[1], x[0]))
+    routes = set()
+    for n in nodes.values():
+        for r in n.get("routes") or []:
+            if n["kind"] == "file":  # inline handler, e.g. a Laravel route closure
+                routes.add((r["method"], r["path"], f"`{n['file']}` (inline)"))
+            elif n["kind"] in ("function", "method"):
+                routes.add((r["method"], r["path"], f"`{n['file']}:{n['label']}()`"))
     if routes:
         L += ["## HTTP routes", "", "| Method | Path | Handler |", "|---|---|---|"]
-        L += [f"| {m} | `{p}` | `{fn['file']}:{fn['label']}()` |" for m, p, fn in routes]
+        L += [f"| {m} | `{p}` | {h} |" for m, p, h in sorted(routes, key=lambda x: (x[1], x[0], x[2]))]
         L.append("")
 
     # ---- data model
@@ -106,6 +126,7 @@ def to_markdown(graph: Dict) -> str:
         by_layer[f.get("layer") or "unknown"].append(f)
     for layer in sorted(by_layer, key=layer_rank):
         L += [f"### {LAYER_NAME.get(layer, layer)}", ""]
+        quiet = []  # files with nothing to say beyond their name
         for f in by_layer[layer]:
             path = f["file"]
             members = [f["id"]] + [fn["id"] for fn in fns.get(path, [])]
@@ -113,6 +134,9 @@ def to_markdown(graph: Dict) -> str:
                      if owner(e["target"]) != f["id"]]
             heard = [ref(owner(e["source"])) for m in members for e in in_e[m]
                      if owner(e["source"]) != f["id"]]
+            if not (talks or heard or fns.get(path) or f.get("warnings")):
+                quiet.append(f"`{path}`")
+                continue
             L.append(f"#### `{path}` ({f.get('language', '?')}, {f.get('loc', 0)} lines)")
             if talks:
                 L.append("Uses: " + _short(talks))
@@ -125,28 +149,30 @@ def to_markdown(graph: Dict) -> str:
                 params = ", ".join(fn.get("params") or [])
                 cls = f"{fn['parentClass']}." if fn.get("parentClass") else ""
                 line = f"- `{cls}{fn['label']}({params})` L{fn.get('line', '?')}"
-                if fn.get("description"):
-                    line += f": {fn['description']}"
+                if _desc(fn):
+                    line += f": {_desc(fn)}"
                 calls = [ref(e["target"], path) for e in out_e[fn["id"]] if e["kind"] != "db"]
                 tbls = [nodes[e["target"]]["label"] for e in out_e[fn["id"]] if e["kind"] == "db"]
                 callers = [ref(e["source"], path) for e in in_e[fn["id"]]]
                 extra = []
                 if calls:
                     extra.append("calls " + _short(calls))
-                if tbls and not fn.get("description"):  # descriptions already name their tables
+                if tbls and not all(t in _desc(fn) for t in tbls):  # skip if the description names them
                     extra.append("tables " + _short(tbls))
                 if callers:
                     extra.append("called by " + _short(callers))
                 if fn.get("cycle"):
                     extra.append("in a call cycle")
-                elif fn.get("orphan"):
-                    extra.append("no callers found")
+                # no "no callers found": framework hooks (up(), boot(), form())
+                # are called by the framework, so it would mislead more than help
                 if extra:
                     line += " | " + "; ".join(extra)
                 L.append(line)
             if len(fl) > FNS_PER_FILE:
                 L.append(f"- … {len(fl) - FNS_PER_FILE} more functions")
             L.append("")
+        if quiet:
+            L += ["Other files: " + _short(quiet, 40), ""]
 
     # ---- things to be careful about
     notes = []

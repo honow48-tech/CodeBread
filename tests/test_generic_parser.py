@@ -102,3 +102,65 @@ def test_redact_secrets_preserves_line_count():
     text = "A=1\nB=2\nPASSWORD=x\nC=3\n"
     out = redact_secrets(text)
     assert len(out.splitlines()) == len(text.splitlines())
+
+
+def test_laravel_migrations_models_routes_and_calls():
+    from codebread.connections import build_graph
+
+    def php(path, src):
+        info = FileInfo(path=path, language="php")
+        parse_generic(info, src, "php")
+        return info
+
+    files = [
+        php("database/migrations/1_create_bookings.php", """<?php
+return new class extends Migration { public function up(): void {
+    Schema::create('bookings', function (Blueprint $table) {
+        $table->id(); $table->string('reference'); $table->timestamps();
+    });
+    Schema::create('equipment', function (Blueprint $table) { $table->id(); });
+} };"""),
+        php("database/migrations/2_add_status.php", """<?php
+return new class extends Migration { public function up(): void {
+    Schema::table('bookings', function (Blueprint $table) { $table->string('status'); });
+} };"""),
+        php("app/Models/Booking.php", "<?php\nclass Booking extends Model {\n"
+            "    public function user() { return $this->belongsTo(User::class); }\n}\n"),
+        php("app/Models/Equipment.php", "<?php\nclass Equipment extends Model {}\n"),
+        php("app/Support/Icons.php", "<?php\nclass Icons { public static function label($k) { return $k; } }\n"),
+        php("app/Widgets/Stats.php", r"""<?php
+use App\Support\Icons;
+class Stats { public function table($t) {
+    return $t->label('Total')->value(Booking::where('status', 'x')->count());
+} }"""),
+        php("routes/web.php", """<?php
+Route::get('/', function () { return view('welcome'); });
+Route::get('/icons', function () { return Icons::label('x'); });"""),
+        FileInfo(path="resources/views/welcome.blade.php", language="php"),
+    ]
+    g = build_graph(files, {"type": "dir", "children": []}, [])
+    nodes = {n["id"]: n for n in g["nodes"]}
+    edges = {(e["source"], e["target"], e["kind"]) for e in g["edges"]}
+
+    # migrations define tables; an alter adds columns without stealing the source
+    assert nodes["table::bookings"]["fields"] == ["id", "reference", "created_at",
+                                                 "updated_at", "status"]
+    assert nodes["table::bookings"]["file"] == "database/migrations/1_create_bookings.php"
+    # models snap to the real table: Booking -> bookings, Equipment -> equipment
+    assert nodes["table::bookings"]["model"] == "Booking"
+    assert nodes["table::equipment"]["model"] == "Equipment"
+    assert "table::equipments" not in nodes
+    # closure routes land on the routes file; view() links to the Blade file
+    assert {r["path"] for r in nodes["routes/web.php"]["routes"]} == {"/", "/icons"}
+    assert ("routes/web.php", "resources/views/welcome.blade.php", "link") in edges
+    # static calls count, $obj->label() does not; Eloquent calls reach the table
+    label = "app/Support/Icons.php::label@2"
+    assert ("routes/web.php", label, "call") in edges
+    assert not any(s.startswith("app/Widgets/Stats.php") and t == label for s, t, _ in edges)
+    assert ("app/Widgets/Stats.php::table@3", "table::bookings", "db") in edges
+    # `use App\...` resolves to the file (PSR-4)
+    assert ("app/Widgets/Stats.php", "app/Support/Icons.php", "include") in edges
+    # framework-called code isn't "unused": migration hooks, Eloquent relations
+    by_label = {(n.get("file"), n["label"]): n for n in g["nodes"]}
+    assert not by_label[("database/migrations/1_create_bookings.php", "up")].get("orphan")
+    assert not by_label[("app/Models/Booking.php", "user")].get("orphan")
